@@ -14,9 +14,7 @@ DATABASE_URL = (
     f"{os.getenv('POSTGRES_PORT')}/"
     f"{os.getenv('POSTGRES_DB')}"
 )
-print("----------------------------------------------------")
-print(f"Connecting to database: {DATABASE_URL}")
-print("----------------------------------------------------")
+
 engine = create_engine(DATABASE_URL, echo=True)
 
 
@@ -30,6 +28,12 @@ class GuildMember(SQLModel, table=True):
     faction: str
     rank: int
     fetched_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+
+
+class OAuthToken(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    access_token: str
+    expires_at: float
 
 
 def init_db():

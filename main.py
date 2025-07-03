@@ -31,7 +31,7 @@ def get_session():
         yield session
 
 
-@app.get("/token")
+@app.get("/token", summary="Read the current WoW token price in gold")
 def read_token():
     price_copper = int(wow.get_wow_token())
     price_gold = price_copper // 10000
@@ -41,7 +41,7 @@ def read_token():
         raise HTTPException(502, str(e))
 
 
-@app.get("/guild")
+@app.get("/guild", summary="Read guild info from Blizzard")
 def read_guild():
     try:
         return guild.get_guild_info()
@@ -55,7 +55,7 @@ def read_roster(session: Session = Depends(get_session)):
     return {
         "roster": [r.dict() for r in rows],
         "count": len(rows),
-        "fetched_at": datetime.utcnow().isoformat(),
+        "fetched_at": datetime.now().astimezone(),
     }
 
 
@@ -97,3 +97,18 @@ def update_roster(session: Session = Depends(get_session)):
 
     # 4) Return a real timestamp
     return {"count": len(roster), "updated": datetime.now().astimezone()}
+
+
+@app.get("/guild/roster/{character_id}", summary="Get a single character by ID")
+def get_roster_id(session: Session = Depends(get_session), character_id: int = 0):
+    rows = session.exec(select(db.GuildMember)).all()
+    try:
+        character_id = int(character_id)
+        if character_id <= 0 or character_id > len(rows):
+            raise HTTPException(status_code=400, detail="Invalid character ID")
+        else:
+            return {
+                "character": [r.dict() for r in rows if r.character_id == character_id],
+            }
+    except Exception as e:
+        raise HTTPException(502, str(e))
