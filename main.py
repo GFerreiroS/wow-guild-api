@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     db.dispose_db()
 
 
-app = FastAPI(
+api_app = FastAPI(
     title="Blizzard API",
     description="A simple API to fetch data from Blizzard's API using OAuth2.",
     version="1.0.0",
@@ -38,7 +38,7 @@ def get_session():
 # --------------------------------
 # Trivial endpoints
 # --------------------------------
-@app.get("/token", summary="Read the current WoW token price in gold")
+@api_app.get("/token", summary="Read the current WoW token price in gold")
 def read_token():
     price_copper = int(wow.get_wow_token())
     price_gold = price_copper // 10000
@@ -48,7 +48,7 @@ def read_token():
         raise HTTPException(502, str(e))
 
 
-@app.get("/guild", summary="Read guild info from Blizzard")
+@api_app.get("/guild", summary="Read guild info from Blizzard")
 def read_guild():
     try:
         return guild.get_guild_info()
@@ -59,7 +59,7 @@ def read_guild():
 # --------------------------------
 # Guild roster endpoints
 # --------------------------------
-@app.get("/guild/roster", summary="Read cached guild roster from Postgres")
+@api_app.get("/guild/roster", summary="Read cached guild roster from Postgres")
 def read_roster(session: Session = Depends(get_session)):
     rows = session.exec(select(db.GuildMember)).all()
     return {
@@ -70,7 +70,7 @@ def read_roster(session: Session = Depends(get_session)):
 
 
 # Protected
-@app.post(
+@api_app.post(
     "/guild/roster/update",
     dependencies=[Depends(get_api_key)],
     summary="Fetch from Blizzard and upsert into Postgres",
@@ -110,7 +110,7 @@ def update_roster(session: Session = Depends(get_session)):
     return {"count": len(roster), "updated": datetime.now().astimezone()}
 
 
-@app.get("/guild/roster/{character_id}", summary="Get a single character by ID")
+@api_app.get("/guild/roster/{character_id}", summary="Get a single character by ID")
 def get_roster_id(session: Session = Depends(get_session), character_id: int = 0):
     rows = session.exec(select(db.GuildMember)).all()
     try:
@@ -128,7 +128,7 @@ def get_roster_id(session: Session = Depends(get_session), character_id: int = 0
 # ---------------------------------
 # User management endpoints
 # ---------------------------------
-@app.post(
+@api_app.post(
     "/users",
     response_model=schema.UserRead,
     summary="Create a user and link to a guild character",
@@ -165,7 +165,7 @@ def create_user(payload: schema.UserCreate, session: Session = Depends(get_sessi
     return schema.UserRead(id=user.id, username=user.username, role=user.role)
 
 
-@app.get("/users", response_model=list[schema.UserRead])
+@api_app.get("/users", response_model=list[schema.UserRead])
 def list_users(session: Session = Depends(get_session)):
     users = session.exec(select(db.User)).all()
     return [
@@ -179,7 +179,7 @@ def list_users(session: Session = Depends(get_session)):
 # -----------------------------------
 
 
-@app.post(
+@api_app.post(
     "/admin/db/reset",
     dependencies=[Depends(get_api_key)],
     summary="Drop & recreate all tables (dev only!)",
@@ -190,3 +190,20 @@ def reset_database():
     """
     admin.reset_db()
     return {"status": "ok"}
+
+
+@api_app.post(
+    "/admin/db/populate",
+    dependencies=[Depends(get_api_key)],
+    summary="Populates database (dev only!)",
+)
+def populate_database():
+    """
+    WARNING: drops and recreates ALL tables
+    """
+    admin.reset_db()
+    return {"status": "ok"}
+
+
+app = FastAPI()
+app.mount("/api", api_app)
