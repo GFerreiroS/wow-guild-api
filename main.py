@@ -197,11 +197,31 @@ def reset_database():
     dependencies=[Depends(get_api_key)],
     summary="Populates database (dev only!)",
 )
-def populate_database():
+def populate_database(session: Session = Depends(get_session)):
     """
-    WARNING: drops and recreates ALL tables
+    WARNING: populates ALL tables by
+    1) updating the guild roster in Postgres,
+    2) pre-fetching the token,
+    3) pre-fetching the guild info.
     """
-    admin.reset_db()
+    # 1) Refresh & store the roster
+    update_roster(session)
+
+    # 2) Warm up the token cache
+    _ = read_token()
+
+    # 3) Warm up the guild info cache
+    _ = read_guild()
+
+    # _ = create_user(
+    #     schema.UserCreate(
+    #         username="admin",
+    #         password="admin",  # plaintext for dev only
+    #         character_id=1,  # must be one of the fetched roster
+    #     ),
+    #     session=session,
+    # )
+
     return {"status": "ok"}
 
 
