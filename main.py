@@ -225,5 +225,11 @@ def populate_database(session: Session = Depends(get_session)):
     return {"status": "ok"}
 
 
-app = FastAPI()
+app = FastAPI(
+    title="Blizzard API",
+    description="A simple API to fetch data from Blizzard's API using OAuth2.",
+    version="1.0.0",
+    docs_url="/docs",
+    lifespan=lifespan,
+)
 app.mount("/api", api_app)
