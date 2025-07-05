@@ -21,13 +21,7 @@ async def lifespan(app: FastAPI):
     db.dispose_db()
 
 
-api_app = FastAPI(
-    title="Blizzard API",
-    description="A simple API to fetch data from Blizzard's API using OAuth2.",
-    version="1.0.0",
-    docs_url="/docs",
-    lifespan=lifespan,
-)
+api_app = FastAPI()
 
 
 def get_session():
@@ -128,6 +122,20 @@ def get_roster_id(session: Session = Depends(get_session), character_id: int = 0
 # ---------------------------------
 # User management endpoints
 # ---------------------------------
+def validate_password(passwd: str):
+    if len(passwd) < 8:
+        return "Password must be at least 8 characters long"
+    if passwd.isalnum():
+        return "Password must contain at least one special character"
+    if passwd.islower() or passwd.isupper():
+        return "Password must contain both uppercase and lowercase letters"
+    if passwd.isdigit():
+        return "Password must contain at least one letter"
+    if not any(ch.isdigit() for ch in passwd):
+        return "Password must contain at least one digit"
+    return None
+
+
 @api_app.post(
     "/users",
     response_model=schema.UserRead,
@@ -138,6 +146,19 @@ def create_user(payload: schema.UserCreate, session: Session = Depends(get_sessi
     gm = session.get(db.GuildMember, payload.character_id)
     if not gm:
         raise HTTPException(404, "Character not found")
+
+    username = session.exec(
+        select(db.User).where(db.User.username == payload.username)
+    ).first()
+    if username:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Username '{payload.username}' is already registered",
+        )
+
+    err = validate_password(payload.password)
+    if err:
+        raise HTTPException(400, err)
 
     # 2) Derive role from rank
     if gm.rank == 0:
@@ -165,7 +186,9 @@ def create_user(payload: schema.UserCreate, session: Session = Depends(get_sessi
     return schema.UserRead(id=user.id, username=user.username, role=user.role)
 
 
-@api_app.get("/users", response_model=list[schema.UserRead])
+@api_app.get(
+    "/users", dependencies=[Depends(get_api_key)], response_model=list[schema.UserRead]
+)
 def list_users(session: Session = Depends(get_session)):
     users = session.exec(select(db.User)).all()
     return [
@@ -207,20 +230,24 @@ def populate_database(session: Session = Depends(get_session)):
     # 1) Refresh & store the roster
     update_roster(session)
 
-    # 2) Warm up the token cache
-    _ = read_token()
-
     # 3) Warm up the guild info cache
     _ = read_guild()
 
-    # _ = create_user(
-    #     schema.UserCreate(
-    #         username="admin",
-    #         password="admin",  # plaintext for dev only
-    #         character_id=1,  # must be one of the fetched roster
-    #     ),
-    #     session=session,
-    # )
+    gm = session.exec(
+        select(db.GuildMember).where(db.GuildMember.name == "Lapaella")
+    ).first()
+    if not gm:
+        raise HTTPException(status_code=404, detail="Character Lapaella not found")
+    character_id = gm.character_id
+
+    _ = create_user(
+        schema.UserCreate(
+            username="admin",
+            password="admin",  # plaintext for dev only
+            character_id=character_id,  # must be one of the fetched roster
+        ),
+        session=session,
+    )
 
     return {"status": "ok"}
 
