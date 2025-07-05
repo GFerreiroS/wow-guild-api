@@ -16,7 +16,6 @@ from lib.security import get_api_key
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.reset_db()
     yield
     db.dispose_db()
 
@@ -181,6 +180,7 @@ def create_user(payload: schema.UserCreate, session: Session = Depends(get_sessi
     gm.user_id = user.id
     session.add(gm)
     session.commit()
+    session.refresh(gm)
 
     assert user.id is not None, "New user must have an ID"
     return schema.UserRead(id=user.id, username=user.username, role=user.role)
@@ -242,8 +242,8 @@ def populate_database(session: Session = Depends(get_session)):
 
     _ = create_user(
         schema.UserCreate(
-            username="admin",
-            password="admin",  # plaintext for dev only
+            username="paella",  # dev user
+            password="Paella1.",  # plaintext for dev only
             character_id=character_id,  # must be one of the fetched roster
         ),
         session=session,
