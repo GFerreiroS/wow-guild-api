@@ -9,8 +9,8 @@ from sqlmodel import Session, select, text
 import lib.admin as admin
 import lib.db as db
 import lib.guild as guild
+import lib.schemas as schema
 import lib.wow as wow
-from lib.schemas import UserCreate, UserRead
 from lib.security import get_api_key
 
 
@@ -130,10 +130,10 @@ def get_roster_id(session: Session = Depends(get_session), character_id: int = 0
 # ---------------------------------
 @app.post(
     "/users",
-    response_model=UserRead,
+    response_model=schema.UserRead,
     summary="Create a user and link to a guild character",
 )
-def create_user(payload: UserCreate, session: Session = Depends(get_session)):
+def create_user(payload: schema.UserCreate, session: Session = Depends(get_session)):
     # 1) Ensure character exists and get its rank
     gm = session.get(db.GuildMember, payload.character_id)
     if not gm:
@@ -162,14 +162,15 @@ def create_user(payload: UserCreate, session: Session = Depends(get_session)):
     session.commit()
 
     assert user.id is not None, "New user must have an ID"
-    return UserRead(id=user.id, username=user.username, role=user.role)
+    return schema.UserRead(id=user.id, username=user.username, role=user.role)
 
 
-@app.get("/users", response_model=list[UserRead])
+@app.get("/users", response_model=list[schema.UserRead])
 def list_users(session: Session = Depends(get_session)):
     users = session.exec(select(db.User)).all()
     return [
-        UserRead(id=cast(int, u.id), username=u.username, role=u.role) for u in users
+        schema.UserRead(id=cast(int, u.id), username=u.username, role=u.role)
+        for u in users
     ]
 
 
