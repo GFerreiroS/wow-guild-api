@@ -1,18 +1,22 @@
+import base64
 from contextlib import asynccontextmanager
 from datetime import datetime
+from typing import cast
 
 from fastapi import Depends, FastAPI, HTTPException
 from sqlmodel import Session, select, text
 
+import lib.admin as admin
 import lib.db as db
 import lib.guild as guild
 import lib.wow as wow
+from lib.schemas import UserCreate, UserRead
 from lib.security import get_api_key
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    db.init_db()
+    db.reset_db()
     yield
     db.dispose_db()
 
@@ -31,6 +35,9 @@ def get_session():
         yield session
 
 
+# --------------------------------
+# Trivial endpoints
+# --------------------------------
 @app.get("/token", summary="Read the current WoW token price in gold")
 def read_token():
     price_copper = int(wow.get_wow_token())
@@ -49,6 +56,9 @@ def read_guild():
         raise HTTPException(502, str(e))
 
 
+# --------------------------------
+# Guild roster endpoints
+# --------------------------------
 @app.get("/guild/roster", summary="Read cached guild roster from Postgres")
 def read_roster(session: Session = Depends(get_session)):
     rows = session.exec(select(db.GuildMember)).all()
@@ -59,6 +69,7 @@ def read_roster(session: Session = Depends(get_session)):
     }
 
 
+# Protected
 @app.post(
     "/guild/roster/update",
     dependencies=[Depends(get_api_key)],
@@ -112,3 +123,69 @@ def get_roster_id(session: Session = Depends(get_session), character_id: int = 0
             }
     except Exception as e:
         raise HTTPException(502, str(e))
+
+
+# ---------------------------------
+# User management endpoints
+# ---------------------------------
+@app.post(
+    "/users",
+    response_model=UserRead,
+    summary="Create a user and link to a guild character",
+)
+def create_user(payload: UserCreate, session: Session = Depends(get_session)):
+    # 1) Ensure character exists and get its rank
+    gm = session.get(db.GuildMember, payload.character_id)
+    if not gm:
+        raise HTTPException(404, "Character not found")
+
+    # 2) Derive role from rank
+    if gm.rank == 0:
+        role = "owner"
+    elif gm.rank == 1:
+        role = "administrator"
+    else:
+        role = "user"
+
+    # 3) Encode password in base64
+    hashed = base64.b64encode(payload.password.encode()).decode()
+
+    # 4) Create user
+    user = db.User(username=payload.username, password=hashed, role=role)
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+
+    # 5) Link character → user
+    gm.user_id = user.id
+    session.add(gm)
+    session.commit()
+
+    assert user.id is not None, "New user must have an ID"
+    return UserRead(id=user.id, username=user.username, role=user.role)
+
+
+@app.get("/users", response_model=list[UserRead])
+def list_users(session: Session = Depends(get_session)):
+    users = session.exec(select(db.User)).all()
+    return [
+        UserRead(id=cast(int, u.id), username=u.username, role=u.role) for u in users
+    ]
+
+
+# -----------------------------------
+# Admin endpoints
+# -----------------------------------
+
+
+@app.post(
+    "/admin/db/reset",
+    dependencies=[Depends(get_api_key)],
+    summary="Drop & recreate all tables (dev only!)",
+)
+def reset_database():
+    """
+    WARNING: drops and recreates ALL tables
+    """
+    admin.reset_db()
+    return {"status": "ok"}

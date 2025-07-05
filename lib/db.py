@@ -1,5 +1,6 @@
 import os
 from datetime import datetime
+from typing import Optional
 
 import dotenv
 from sqlmodel import Field, SQLModel, create_engine
@@ -28,6 +29,15 @@ class GuildMember(SQLModel, table=True):
     faction: str
     rank: int
     fetched_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+    user_id: Optional[int] = Field(default=None, foreign_key="user.id")
+
+
+class User(SQLModel, table=True):
+    id: int = Field(default=None, primary_key=True)
+    username: str = Field(index=True, unique=True)
+    password: str
+    role: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
 
 
 class OAuthToken(SQLModel, table=True):
@@ -36,7 +46,11 @@ class OAuthToken(SQLModel, table=True):
     expires_at: float
 
 
-def init_db():
+def reset_db():
+    """
+    Drops all tables and recreates them from the current models.
+    """
+    SQLModel.metadata.drop_all(engine)
     SQLModel.metadata.create_all(engine)
 
 
