@@ -26,30 +26,273 @@ LOG_PATH = Path("generate_instances.log")
 
 EXPANSION_MAP = {
     "classic": {
-        "dungeons": ["Ragefire Chasm", "Wailing Caverns", "Blackfathom Deeps"],
+        "dungeons": [
+            "Blackfathom Deeps",
+            "Blackrock Depths",
+            "Deadmines",
+            "Dire Maul - Capital Gardens",
+            "Dire Maul - Gordok Commons",
+            "Dire Maul - Warpwood Quarter",
+            "Gnomeregan",
+            "Lower Blackrock Spire",
+            "Maraudon",
+            "Ragefire Chasm",
+            "Razorfen Downs",
+            "Razorfen Kraul",
+            "Scarlet Halls",
+            "Scarlet Monastery",
+            "Scholomance",
+            "The Stockade",
+            "The Temple of Atal'Hakkar",
+            "Uldaman",
+            "Wailing Caverns",
+            "Zul'Farrak"
+        ],
         "raids": [
-            "Onyxia's Lair",
             "Molten Core",
             "Blackwing Lair",
-            "Zul'Gurub",
             "Ruins of Ahn'Qiraj",
             "Temple of Ahn'Qiraj",
+            "Blackrock Depths"
         ],
     },
-    "the-burning-crusade": {
-        "dungeons": ["Hellfire Ramparts", "The Blood Furnace", "The Slave Pens"],
+    "burning crusade": {
+        "dungeons": [
+            "Auchenai Crypts",
+            "Hellfire Ramparts",
+            "Magisters' Terrace",
+            "Mana Tombs",
+            "Old Hillsbrad Foothills",
+            "Sethekk Halls",
+            "Shadow Labyrinth",
+            "The Alcatraz",
+            "The Black Moras",
+            "The Blood Furnace",
+            "The Botanica",
+            "The Mechanar",
+            "The Shattered Halls",
+            "The Slave Pens",
+            "The Steamvault",
+            "The Underbog"
+        ],
         "raids": [
             "Karazhan",
             "Gruul's Lair",
-            "Magther's Terrace",
+            "Magtheridon's Lair",
             "Serpentshrine Cavern",
-            "Tempest Keep",
+            "The Eye",
+            "The Battle For Mount Hyjal",
             "Black Temple",
+            "Sunwell Plateau"
+        ],
+    },
+    "wrath of the lich king": {
+        "dungeons": [
+            "Ahn'kahet: The Old Kingdom",
+            "Azjol-Nerub",
+            "Drak'Tharon Keep",
+            "Gundrak",
+            "Halls of Lightning",
+            "Halls of Reflection",
+            "Halls of Stone",
+            "Pit of Saron",
+            "The Culling of Stratholme",
+            "The Forge of Souls",
+            "The Nexus",
+            "The Oculus",
+            "The Violet Hold",
+            "Trial of the Champion",
+            "Utgarde Keep",
+            "Utgarde Pinnacle"
+        ],
+        "raids": [
+            "Vault of Archavon",
+            "Naxxramas",
+            "The Obsidian Sanctum",
+            "The Eye of Eternity",
+            "Ulduar",
+            "Trial of the Crusader",
+            "Onyxia's Lair",
+            "Icecrown Citadel",
+            "The Ruby Sanctum"
+        ],
+    },
+    "cataclysm": {
+        "dungeons": [
+            "Blackrock Caverns",
+            "Deadmines",
+            "End Time",
+            "Grim Batol",
+            "Halls of Orgination",
+            "Hour of Twilight",
+            "Lost City of the Tol'vir",
+            "Shadowfang Keep",
+            "The Stonecore",
+            "The Vortex Pinnacle",
+            "Throne of the Tides",
+            "Well of Eternity",
+            "Zul'Aman",
+            "Zul'Gurub"
+        ],
+        "raids": [
+            "Baradin Hold",
+            "Blackwing Descent",
+            "The Bastion of Twilight",
+            "Throne of the Four Winds",
+            "Firelands",
+            "Dragon Soul"
+        ],
+    },
+    "mists of pandaria": {
+        "dungeons": [
+            "Gate of the Setting Sun",
+            "Mogun'shan Palace",
+            "Scarlet Halls",
+            "Scarlet Monastery",
+            "Scholomance",
+            "Shado-Pan Monastery",
+            "Siege of Niuzao Temple",
+            "Stormstout Brewery",
+            "Temple of the Jade Serpent"
+        ],
+        "raids": [
+            "Mogu'shan Vaults",
+            "Heart of Fear",
+            "Terrace of Endless Spring",
+            "Throne of Thunder",
+            "Siege of Orgrimmar"
+        ],
+    },
+    "warlords of draenor": {
+        "dungeons": [
+            "Auchidoun",
+            "Bloodmaul Slag Mines",
+            "Grimrail Depot",
+            "Iron Docks",
+            "Shadowmoon Burial Grounds",
+            "Skyreach",
+            "The Everbloom",
+            "Upper Blackrock Spire"
+        ],
+        "raids": [
+            "Highmaul",
+            "Blackrock Foundry",
+            "Hellfire Citadel"
+        ],
+    },
+    "legion": {
+        "dungeons": [
+            "Assault Violet Hold",
+            "Black Rook Hold",
+            "Cathedral of Eternal Night",
+            "Court of Stars",
+            "Darkheart Thicket",
+            "Eye of Azshara",
+            "Halls of Valor",
+            "Maw of Souls",
+            "Neltharion's Lair",
+            "Return to Karazhan",
+            "Seat of the Triumvirate",
+            "The Arcway",
+            "Vault of the Wardens"
+        ],
+        "raids": [
+            "The Emerald Nightmare",
+            "Trial of Valor",
+            "The Nighthold",
+            "Tomb of Sargeras",
+            "Antorus the Burnin Throne",
+        ],
+    },
+    "battle for azeroth": {
+        "dungeons": [
+            "Atal'Dazar",
+            "Freehold",
+            "Kings' Rest",
+            "Operation: Mechagon",
+            "Shrine of the Storm",
+            "Siege of Boralus",
+            "Temple of Sethraliss",
+            "The MOTHERLODE!!",
+            "The Underrot",
+            "Tol Dagor",
+            "Waycrest Manor"
+        ],
+        "raids": [
+            "Uldir",
+            "Battle of Dazar'alor",
+            "Crucible of Storms",
+            "The Eternal Palace",
+            "Ny'alotha the Waking City"
+        ],
+    },
+    "shadowlands": {
+        "dungeons": [
+            "De Other Side",
+            "Halls of Atonement",
+            "Mists of Tirna Scithe",
+            "Plaguefall",
+            "Sanguine Depths",
+            "Spires of Ascension",
+            "Tazavesh, the Veiled Market",
+            "The Necrotic Wake",
+            "Theater of Pain"
+        ],
+        "raids": [
+            "Castle Nathria",
+            "Sanctum of Domination",
+            "Sepulcher of the First Ones"
         ],
     },
     "dragonflight": {
-        "dungeons": ["Ruby Life Pools", "Brackenhide Hollow", "The Nokhud Offensive"],
-        "raids": ["Vault of the Incarnates", "Aberrus, the Shadowed Crucible"],
+        "dungeons": [
+            "Algeth'ar Academy",
+            "Brackenhide Hollow",
+            "Halls of Infunsion",
+            "Neltharus",
+            "Ruby Life Pools",
+            "The Azure Vault",
+            "The Nokhud Offensive",
+            "Uldaman: Legacy of Tyr",
+            "Dawn of the Infinite"
+        ],
+        "raids": [
+            "Vault of the Incarnates",
+            "Aberrus, the Shadowed Crucible",
+            "Amirdrassil, the Dream's Hope"
+        ],
+    },
+    "the war within": {
+        "dungeons": [
+            "Ara-Kara, City of Echoes",
+            "Cinderbrew Meadery",
+            "City of Threads",
+            "Darkflame Cleft",
+            "Priory of the Sacred Flame",
+            "The Dawnbreaker",
+            "The Rookery",
+            "The Stonevault",
+            "OPERATION: FLOODGATE"
+        ],
+        "raids": [
+            "Nerub-ar Palace"
+            "Liberation of Undermine"
+        ],
+    },
+    "current season": {
+        "dungeons": [
+            "Cinderbrew Meadery",
+            "Darkflame Cleft",
+            "Priory of the Sacred Flame",
+            "The Rookery",
+            "OPERATION: FLOODGATE",
+            "Theater of Pain",
+            "Operation: Mechagon",
+            "The MOTHERLODE!!"
+        ],
+        "raids": [
+            "Liberation of Undermine"
+        ],
     },
 }
 
