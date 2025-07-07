@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import logging
 import os
-import time
 from pathlib import Path
 
 import requests
@@ -18,8 +17,41 @@ TOKEN_URL = "https://oauth.battle.net/token"
 BASE_URL = "https://eu.api.blizzard.com"
 NAMESPACE = f"static-{os.getenv('REGION', 'eu')}"
 LOCALE = os.getenv("LOCALE", "en_US")
-OUTPUT_PATH = Path("data/instances.yml")
+BASE_OUTPUT = Path("data/instances.yml")
 LOG_PATH = Path("generate_instances.log")
+
+# ——————————————————————————————————————————————
+# EXPANSION MAP
+# ——————————————————————————————————————————————
+
+EXPANSION_MAP = {
+    "classic": {
+        "dungeons": ["Ragefire Chasm", "Wailing Caverns", "Blackfathom Deeps"],
+        "raids": [
+            "Onyxia's Lair",
+            "Molten Core",
+            "Blackwing Lair",
+            "Zul'Gurub",
+            "Ruins of Ahn'Qiraj",
+            "Temple of Ahn'Qiraj",
+        ],
+    },
+    "the-burning-crusade": {
+        "dungeons": ["Hellfire Ramparts", "The Blood Furnace", "The Slave Pens"],
+        "raids": [
+            "Karazhan",
+            "Gruul's Lair",
+            "Magther's Terrace",
+            "Serpentshrine Cavern",
+            "Tempest Keep",
+            "Black Temple",
+        ],
+    },
+    "dragonflight": {
+        "dungeons": ["Ruby Life Pools", "Brackenhide Hollow", "The Nokhud Offensive"],
+        "raids": ["Vault of the Incarnates", "Aberrus, the Shadowed Crucible"],
+    },
+}
 
 # ——————————————————————————————————————————————
 # LOGGER SETUP
@@ -49,15 +81,10 @@ logger.addHandler(fh)
 
 
 def get_access_token() -> str:
-    cache = Path(".token_cache.json")
-    now = time.time()
-    if cache.exists():
-        data = yaml.safe_load(cache.read_text())
-        if data.get("expires_at", 0) > now:
-            logger.debug("Using cached access token")
-            return data["access_token"]
-
-    logger.info("Fetching new access token")
+    """
+    Always fetch a fresh OAuth token—no caching to disk or memory.
+    """
+    logger.info("Fetching new access token from Blizzard")
     resp = requests.post(
         TOKEN_URL,
         data={
@@ -67,15 +94,7 @@ def get_access_token() -> str:
         },
     )
     resp.raise_for_status()
-    j = resp.json()
-    token = j["access_token"]
-    expires = now + j.get("expires_in", 3600) - 10
-
-    yaml.safe_dump(
-        {"access_token": token, "expires_at": expires},
-        cache.open("w"),
-    )
-    return token
+    return resp.json()["access_token"]
 
 
 # ——————————————————————————————————————————————
@@ -115,94 +134,86 @@ def blizz_get(path: str, **params) -> dict:
 
 
 def main():
-    logger.info("Starting instance YAML generation")
-    OUTPUT_PATH.parent.mkdir(exist_ok=True)
+    load_dotenv()  # load CLIENT_ID, CLIENT_SECRET, REGION, LOCALE from .env
 
-    # 1) Fetch the journal-instance index
-    idx = blizz_get("/data/wow/journal-instance/index")
-    instances = idx.get("instances", [])
-    logger.info(f"Fetched {len(instances)} instances from index")
+    for exp_name, cfg in EXPANSION_MAP.items():  # iterate over each retail expansion
+        dset = set(cfg["dungeons"])  # quick lookup set for dungeon names
+        rset = set(cfg["raids"])  # quick lookup set for raid names
 
-    output = []
-    inst_custom_id = 1
+        out_dir = BASE_OUTPUT.parent / exp_name
+        out_dir.mkdir(parents=True, exist_ok=True)  # ensure expansion folder exists
 
-    for inst in instances:
-        bid = inst.get("id")
-        index_name = inst.get("name")
-        if not bid:
-            logger.warning("Skipping instance with no Blizzard ID in index")
-            continue
+        d_list, r_list = [], []  # lists to collect dungeon/raid records
+        d_id, r_id = 1, 1  # reset custom ID counters for each file
 
-        # 2) Fetch instance detail
-        try:
-            detail = blizz_get(f"/data/wow/journal-instance/{bid}")
-        except Exception as e:
-            logger.error(f"Failed to fetch detail for instance {bid}: {e}")
-            continue
+        # 1) Fetch the instance index from Blizzard
+        idx = blizz_get(
+            "/data/wow/journal-instance/index", namespace=NAMESPACE, locale=LOCALE
+        )
+        insts = idx.get("instances", [])
+        logger.info(f"[{exp_name}] fetched {len(insts)} instances")
 
-        inst_name = detail.get("name") or index_name
-        if not inst_name:
-            logger.error(f"No name found for instance {bid}")
-        inst_desc = detail.get("description")
+        for entry in insts:
+            bid = entry.get("id")  # Blizzard’s instance ID
+            name = entry.get("name")  # instance name
+            if not (bid and name):
+                continue  # skip if missing data
 
-        # 3) Fetch zone image via journal-instance media endpoint
-        try:
-            media = blizz_get(f"/data/wow/media/journal-instance/{bid}")
-            zone_img = next(
-                (
-                    a["value"]
-                    for a in media.get("assets", [])
-                    if a["key"] in ("tile", "main", "image", "icon")
-                ),
+            # 2) classify as dungeon or raid based on your manual lists
+            if name in dset:
+                target_list, next_id = d_list, d_id
+            elif name in rset:
+                target_list, next_id = r_list, r_id
+            else:
+                continue  # skip unlisted instances
+
+            # 3) Fetch instance detail
+            detail = blizz_get(
+                f"/data/wow/journal-instance/{bid}", namespace=NAMESPACE, locale=LOCALE
+            )
+            desc = detail.get("description")  # optional description
+
+            # 4) Fetch zone image via media endpoint
+            media = blizz_get(
+                f"/data/wow/media/journal-instance/{bid}",
+                namespace=NAMESPACE,
+                locale=LOCALE,
+            )
+            img = next(
+                (a["value"] for a in media.get("assets", []) if a["key"] == "tile"),
                 None,
             )
-            if not zone_img:
-                logger.warning(f"No zone image found for instance {bid}")
-        except Exception as e:
-            logger.error(f"Error fetching media for instance {bid}: {e}")
-            zone_img = None
 
-        # 4) Process encounters
-        encounters = []
-        enc_custom_id = 1
-        for enc in detail.get("encounters", []):
-            ebid = enc.get("id")
-            index_enc_name = enc.get("name")
-            if not ebid:
-                logger.warning(f"Skipping encounter with no ID in instance {bid}")
-                continue
+            # 5) Process encounters
+            encounters, ec_id = [], 1
+            for enc in detail.get("encounters", []):
+                ebid = enc.get("id")
+                enc_name = enc.get("name")
+                if not ebid:
+                    continue  # skip invalid encounter
 
-            # 5) Fetch encounter detail
-            try:
-                edetail = blizz_get(f"/data/wow/journal-encounter/{ebid}")
-            except Exception as e:
-                logger.error(f"  Failed to fetch encounter {ebid}: {e}")
-                continue
+                # fetch encounter detail
+                edetail = blizz_get(
+                    f"/data/wow/journal-encounter/{ebid}",
+                    namespace=NAMESPACE,
+                    locale=LOCALE,
+                )
+                enc_desc = edetail.get("description")
 
-            enc_name = edetail.get("name") or index_enc_name
-            if not enc_name:
-                logger.error(f"  No name for encounter {ebid} in instance {bid}")
-            enc_desc = edetail.get("description")
+                # 6) Process creatures in this encounter
+                creatures, c_id = [], 1
+                for c in edetail.get("creatures", []):
+                    cid = c.get("id")
+                    cname = c.get("name")
+                    if not cid:
+                        continue  # skip invalid creature
 
-            # 6) Process creatures
-            creatures = []
-            c_custom_id = 1
-            for c in edetail.get("creatures", []):
-                cid = c.get("id")
-                cname = c.get("name")
-                if not cid:
-                    logger.warning(
-                        f"    Skipping creature with no ID in encounter {ebid}"
+                    disp = c["creature_display"]["id"]
+                    cmedia = blizz_get(
+                        f"/data/wow/media/creature-display/{disp}",
+                        namespace=NAMESPACE,
+                        locale=LOCALE,
                     )
-                    continue
-                if not cname:
-                    logger.warning(
-                        f"    No creature name for {cid} in encounter {ebid}"
-                    )
-
-                disp_id = c["creature_display"]["id"]
-                try:
-                    cmedia = blizz_get(f"/data/wow/media/creature-display/{disp_id}")
                     cimg = next(
                         (
                             a["value"]
@@ -211,52 +222,55 @@ def main():
                         ),
                         None,
                     )
-                    if not cimg:
-                        logger.warning(f"    No image for creature {cid}")
-                except Exception as e:
-                    logger.error(
-                        f"    Error fetching media for creature-display {disp_id}: {e}"
-                    )
-                    cimg = None
 
-                creatures.append(
+                    creatures.append(
+                        {
+                            "id": c_id,
+                            "blizzard_id": cid,
+                            "creature_display_id": disp,
+                            "name": cname,
+                            "img": cimg,
+                        }
+                    )
+                    c_id += 1
+
+                encounters.append(
                     {
-                        "id": c_custom_id,
-                        "blizzard_id": cid,
-                        "creature_display_id": disp_id,
-                        "name": cname,
-                        "img": cimg,
+                        "id": ec_id,
+                        "blizzard_id": ebid,
+                        "name": enc_name,
+                        "description": enc_desc,
+                        "creatures": creatures,
                     }
                 )
-                c_custom_id += 1
+                ec_id += 1
 
-            encounters.append(
-                {
-                    "id": enc_custom_id,
-                    "blizzard_id": ebid,
-                    "name": enc_name,
-                    "description": enc_desc,
-                    "creatures": creatures,
-                }
-            )
-            enc_custom_id += 1
-
-        output.append(
-            {
-                "id": inst_custom_id,
+            # 7) Build and append the instance record
+            record = {
+                "id": next_id,
                 "blizzard_id": bid,
-                "name": inst_name,
-                "description": inst_desc,
-                "img": zone_img,
+                "name": name,
+                "description": desc,
+                "img": img,
                 "encounters": encounters,
             }
-        )
-        inst_custom_id += 1
+            target_list.append(record)
 
-    # 7) Write YAML
-    with OUTPUT_PATH.open("w", encoding="utf-8") as f:
-        yaml.safe_dump(output, f, sort_keys=False, allow_unicode=True)
-    logger.info(f"Wrote {len(output)} instances to {OUTPUT_PATH}")
+            # 8) Increment the proper ID counter
+            if target_list is d_list:
+                d_id += 1
+            else:
+                r_id += 1
+
+        # 9) Write out the YAML files for this expansion
+        with (out_dir / "dungeons.yml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(d_list, f, sort_keys=False, allow_unicode=True)
+        with (out_dir / "raids.yml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(r_list, f, sort_keys=False, allow_unicode=True)
+
+        logger.info(
+            f"[{exp_name}] wrote {len(d_list)} dungeons and {len(r_list)} raids"
+        )
 
 
 if __name__ == "__main__":
