@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
-import logging
 import os
-from pathlib import Path
-
+import time
+import threading
 import requests
 import yaml
+import logging
+from pathlib import Path
 from dotenv import load_dotenv
+from collections import deque
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 # ——————————————————————————————————————————————
 # CONFIGURATION
@@ -13,12 +16,13 @@ from dotenv import load_dotenv
 
 load_dotenv()  # CLIENT_ID, CLIENT_SECRET, REGION, LOCALE
 
-TOKEN_URL = "https://oauth.battle.net/token"
-BASE_URL = "https://eu.api.blizzard.com"
-NAMESPACE = f"static-{os.getenv('REGION', 'eu')}"
-LOCALE = os.getenv("LOCALE", "en_US")
-BASE_OUTPUT = Path("data/instances.yml")
-LOG_PATH = Path("generate_instances.log")
+REGION      = os.getenv("REGION", "eu")
+GLOBAL_NS   = f"static-{REGION}"
+GLOBAL_LO   = os.getenv("LOCALE", "en_US")
+API_BASE    = "https://eu.api.blizzard.com"
+TOKEN_URL   = "https://oauth.battle.net/token"
+LOG_PATH    = Path("generate_instances.log")
+BASE_OUTPUT = Path("data/instances")
 
 # ——————————————————————————————————————————————
 # EXPANSION MAP
@@ -300,8 +304,10 @@ EXPANSION_MAP = {
 # LOGGER SETUP
 # ——————————————————————————————————————————————
 
-logger = logging.getLogger("instance_generator")
+logger = logging.getLogger("by_expansion")
 logger.setLevel(logging.INFO)
+
+ch = logging.StreamHandler();    ch.setLevel(logging.INFO)
 
 # Console handler
 ch = logging.StreamHandler()
@@ -319,200 +325,207 @@ logger.addHandler(ch)
 logger.addHandler(fh)
 
 # ——————————————————————————————————————————————
-# AUTHENTICATION (with simple file cache)
+# RATE LIMITER
 # ——————————————————————————————————————————————
+class RateLimiter:
+    def __init__(self, max_calls: int, period: float):
+        self.max_calls = max_calls
+        self.period = period
+        self.calls = deque()
+        self.lock = threading.Lock()
 
+    def acquire(self):
+        with self.lock:
+            now = time.monotonic()
+            # remove old calls
+            while self.calls and now - self.calls[0] > self.period:
+                self.calls.popleft()
+            # if we're at limit, wait
+            if len(self.calls) >= self.max_calls:
+                wait = self.period - (now - self.calls[0])
+                time.sleep(wait)
+                now = time.monotonic()
+                while self.calls and now - self.calls[0] > self.period:
+                    self.calls.popleft()
+            self.calls.append(now)
 
+rate_limiter = RateLimiter(max_calls=100, period=1.0)
+
+# ——————————————————————————————————————————————
+# HTTP SESSION & MEDIA CACHE
+# ——————————————————————————————————————————————
+SESSION = requests.Session()
+MEDIA_CACHE = {}
+
+# ——————————————————————————————————————————————
+# AUTH (no caching needed)
+# ——————————————————————————————————————————————
 def get_access_token() -> str:
-    """
-    Always fetch a fresh OAuth token—no caching to disk or memory.
-    """
-    logger.info("Fetching new access token from Blizzard")
-    resp = requests.post(
-        TOKEN_URL,
-        data={
-            "grant_type": "client_credentials",
-            "client_id": os.getenv("CLIENT_ID"),
-            "client_secret": os.getenv("CLIENT_SECRET"),
-        },
-    )
+    load_dotenv()
+    logger.info("Fetching new access token")
+    resp = SESSION.post(TOKEN_URL, data={
+        "grant_type":    "client_credentials",
+        "client_id":     os.getenv("CLIENT_ID"),
+        "client_secret": os.getenv("CLIENT_SECRET"),
+    })
     resp.raise_for_status()
     return resp.json()["access_token"]
-
 
 # ——————————————————————————————————————————————
 # BLIZZARD GET HELPER
 # ——————————————————————————————————————————————
-
-
-def blizz_get(path: str, **params) -> dict:
-    """
-    Helper for Blizzard GET with bearer & common params.
-    Logs each call URL and response status.
-    """
-    url = f"{BASE_URL}{path}"
+def blizz_get(path: str, namespace: str, locale: str, **params) -> dict:
+    url = API_BASE + path
     token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"}
-    full_params = {"namespace": NAMESPACE, "locale": LOCALE, **params}
+    qp = {"namespace": namespace, "locale": locale, **params}
 
-    # Log the outgoing request
-    logger.info(f"CALL → {url}  params={full_params}")
-
-    resp = requests.get(url, params=full_params, headers=headers)
+    rate_limiter.acquire()
+    logger.info(f"CALL → {url} params={qp}")
+    resp = SESSION.get(url, params=qp, headers=headers)
     try:
         resp.raise_for_status()
     except Exception:
-        # Log the failure with status and full URL (including querystring)
         logger.error(f"FAILED ← {resp.status_code} {resp.url}")
-        raise
-
-    # Log the successful response
+        return {}
     logger.info(f"RESP  ← {resp.status_code} {resp.url}")
     return resp.json()
 
+def fetch_media(path: str, namespace: str, locale: str) -> dict:
+    key = (path, namespace, locale)
+    if key in MEDIA_CACHE:
+        return MEDIA_CACHE[key]
+    data = blizz_get(path, namespace, locale)
+    MEDIA_CACHE[key] = data
+    return data
 
 # ——————————————————————————————————————————————
-# MAIN SCRIPT
+# INSTANCE PROCESSING FUNCTION
 # ——————————————————————————————————————————————
+def process_instance(name: str, bid: int, kind: str, namespace: str, locale: str):
+    """
+    Fetch detail, media, encounters, creatures for one instance.
+    Returns a dict record or None on error.
+    """
+    try:
+        detail = blizz_get(f"/data/wow/journal-instance/{bid}", namespace, locale)
+        desc   = detail.get("description")
 
+        media = fetch_media(f"/data/wow/media/journal-instance/{bid}", namespace, locale)
+        img   = next((a["value"] for a in media.get("assets", []) if a["key"] == "tile"), None)
 
+        encounters = []
+        ec_id = 1
+        for enc in detail.get("encounters", []):
+            ebid = enc.get("id"); enc_name = enc.get("name")
+            if not ebid:
+                continue
+            edetail = blizz_get(f"/data/wow/journal-encounter/{ebid}", namespace, locale)
+            enc_desc = edetail.get("description")
+
+            creatures = []
+            c_id = 1
+            for c in edetail.get("creatures", []):
+                cid = c.get("id"); cname = c.get("name")
+                if not cid:
+                    continue
+                disp = c["creature_display"]["id"]
+                cmedia = fetch_media(f"/data/wow/media/creature-display/{disp}", namespace, locale)
+                cimg = next((a["value"] for a in cmedia.get("assets", []) if a["key"] == "zoom"), None)
+                creatures.append({
+                    "id": c_id,
+                    "blizzard_id": cid,
+                    "creature_display_id": disp,
+                    "name": cname,
+                    "img": cimg,
+                })
+                c_id += 1
+
+            encounters.append({
+                "id": ec_id,
+                "blizzard_id": ebid,
+                "name": enc_name,
+                "description": enc_desc,
+                "creatures": creatures,
+            })
+            ec_id += 1
+
+        return {
+            "kind": kind,
+            "record": {
+                "blizzard_id": bid,
+                "name":        name,
+                "description": desc,
+                "img":         img,
+                "encounters":  encounters,
+            }
+        }
+    except Exception as e:
+        logger.error(f"Error processing instance {name} ({bid}): {e}")
+        return None
+
+# ——————————————————————————————————————————————
+# MAIN DRIVER
+# ——————————————————————————————————————————————
 def main():
-    load_dotenv()  # load CLIENT_ID, CLIENT_SECRET, REGION, LOCALE from .env
+    load_dotenv()
+    for exp_name, cfg in EXPANSION_MAP.items():
+        namespace, locale = GLOBAL_NS, GLOBAL_LO
+        dset, rset = set(cfg["dungeons"]), set(cfg["raids"])
 
-    for exp_name, cfg in EXPANSION_MAP.items():  # iterate over each retail expansion
-        dset = set(cfg["dungeons"])  # quick lookup set for dungeon names
-        rset = set(cfg["raids"])  # quick lookup set for raid names
+        out_dir = BASE_OUTPUT / exp_name
+        out_dir.mkdir(parents=True, exist_ok=True)
 
-        out_dir = BASE_OUTPUT.parent / exp_name
-        out_dir.mkdir(parents=True, exist_ok=True)  # ensure expansion folder exists
+        d_list, r_list, u_list = [], [], []
+        d_id = r_id = u_id = 1
 
-        d_list, r_list = [], []  # lists to collect dungeon/raid records
-        d_id, r_id = 1, 1  # reset custom ID counters for each file
-
-        # 1) Fetch the instance index from Blizzard
-        idx = blizz_get(
-            "/data/wow/journal-instance/index", namespace=NAMESPACE, locale=LOCALE
-        )
+        idx = blizz_get("/data/wow/journal-instance/index", namespace, locale)
         insts = idx.get("instances", [])
         logger.info(f"[{exp_name}] fetched {len(insts)} instances")
 
+        # classify upfront
+        to_process = []
         for entry in insts:
-            bid = entry.get("id")  # Blizzard’s instance ID
-            name = entry.get("name")  # instance name
+            bid = entry.get("id"); name = entry.get("name")
             if not (bid and name):
-                continue  # skip if missing data
-
-            # 2) classify as dungeon or raid based on your manual lists
+                continue
             if name in dset:
-                target_list, next_id = d_list, d_id
+                to_process.append((name, bid, "dungeon"))
             elif name in rset:
-                target_list, next_id = r_list, r_id
+                to_process.append((name, bid, "raid"))
             else:
-                continue  # skip unlisted instances
+                logger.error(f"[{exp_name}] Unmatched instance: '{name}' (ID: {bid})")
+                u_list.append({"id": u_id, "blizzard_id": bid, "name": name})
+                u_id += 1
 
-            # 3) Fetch instance detail
-            detail = blizz_get(
-                f"/data/wow/journal-instance/{bid}", namespace=NAMESPACE, locale=LOCALE
-            )
-            desc = detail.get("description")  # optional description
-
-            # 4) Fetch zone image via media endpoint
-            media = blizz_get(
-                f"/data/wow/media/journal-instance/{bid}",
-                namespace=NAMESPACE,
-                locale=LOCALE,
-            )
-            img = next(
-                (a["value"] for a in media.get("assets", []) if a["key"] == "tile"),
-                None,
-            )
-
-            # 5) Process encounters
-            encounters, ec_id = [], 1
-            for enc in detail.get("encounters", []):
-                ebid = enc.get("id")
-                enc_name = enc.get("name")
-                if not ebid:
-                    continue  # skip invalid encounter
-
-                # fetch encounter detail
-                edetail = blizz_get(
-                    f"/data/wow/journal-encounter/{ebid}",
-                    namespace=NAMESPACE,
-                    locale=LOCALE,
-                )
-                enc_desc = edetail.get("description")
-
-                # 6) Process creatures in this encounter
-                creatures, c_id = [], 1
-                for c in edetail.get("creatures", []):
-                    cid = c.get("id")
-                    cname = c.get("name")
-                    if not cid:
-                        continue  # skip invalid creature
-
-                    disp = c["creature_display"]["id"]
-                    cmedia = blizz_get(
-                        f"/data/wow/media/creature-display/{disp}",
-                        namespace=NAMESPACE,
-                        locale=LOCALE,
-                    )
-                    cimg = next(
-                        (
-                            a["value"]
-                            for a in cmedia.get("assets", [])
-                            if a["key"] == "zoom"
-                        ),
-                        None,
-                    )
-
-                    creatures.append(
-                        {
-                            "id": c_id,
-                            "blizzard_id": cid,
-                            "creature_display_id": disp,
-                            "name": cname,
-                            "img": cimg,
-                        }
-                    )
-                    c_id += 1
-
-                encounters.append(
-                    {
-                        "id": ec_id,
-                        "blizzard_id": ebid,
-                        "name": enc_name,
-                        "description": enc_desc,
-                        "creatures": creatures,
-                    }
-                )
-                ec_id += 1
-
-            # 7) Build and append the instance record
-            record = {
-                "id": next_id,
-                "blizzard_id": bid,
-                "name": name,
-                "description": desc,
-                "img": img,
-                "encounters": encounters,
+        # parallel fetch
+        with ThreadPoolExecutor(max_workers=10) as pool:
+            futures = {
+                pool.submit(process_instance, name, bid, kind, namespace, locale): (name, bid)
+                for name, bid, kind in to_process
             }
-            target_list.append(record)
+            for fut in as_completed(futures):
+                res = fut.result()
+                if not res:
+                    continue
+                kind = res["kind"]
+                rec  = res["record"]
+                if kind == "dungeon":
+                    rec["id"] = d_id; d_list.append(rec); d_id += 1
+                else:
+                    rec["id"] = r_id; r_list.append(rec); r_id += 1
 
-            # 8) Increment the proper ID counter
-            if target_list is d_list:
-                d_id += 1
-            else:
-                r_id += 1
-
-        # 9) Write out the YAML files for this expansion
+        # write YAML
         with (out_dir / "dungeons.yml").open("w", encoding="utf-8") as f:
             yaml.safe_dump(d_list, f, sort_keys=False, allow_unicode=True)
         with (out_dir / "raids.yml").open("w", encoding="utf-8") as f:
             yaml.safe_dump(r_list, f, sort_keys=False, allow_unicode=True)
+        with (out_dir / "unsorted.yml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(u_list, f, sort_keys=False, allow_unicode=True)
 
         logger.info(
-            f"[{exp_name}] wrote {len(d_list)} dungeons and {len(r_list)} raids"
+            f"[{exp_name}] wrote {len(d_list)} dungeons, {len(r_list)} raids, "
+            f"{len(u_list)} unsorted to {out_dir}"
         )
 
 
