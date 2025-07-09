@@ -14,816 +14,451 @@ from dotenv import load_dotenv
 # ——————————————————————————————————————————————
 # CONFIGURATION
 # ——————————————————————————————————————————————
-
 load_dotenv()  # CLIENT_ID, CLIENT_SECRET, REGION, LOCALE
 
 REGION = os.getenv("REGION", "eu")
 GLOBAL_NS = f"static-{REGION}"
 GLOBAL_LO = os.getenv("LOCALE", "en_US")
+
 API_BASE = "https://eu.api.blizzard.com"
 TOKEN_URL = "https://oauth.battle.net/token"
-LOG_PATH = Path("generate_instances.log")
+
 BASE_OUTPUT = Path("data/instances")
+LOG_DIR = Path("logs")
+LOG_DIR.mkdir(exist_ok=True)
+LOG_PATH = LOG_DIR / "generate_instances.log"
+API_CALL_COUNT = 0
 
-# ——————————————————————————————————————————————
-# EXPANSION MAP
-# ——————————————————————————————————————————————
-
-EXPANSION_MAP = {
-    "classic": {
-        "dungeons": [
-            "Blackfathom Deeps",
-            "Blackrock Depths",
-            "Deadmines",
-            "Dire Maul - Capital Gardens",
-            "Dire Maul - Gordok Commons",
-            "Dire Maul - Warpwood Quarter",
-            "Gnomeregan",
-            "Lower Blackrock Spire",
-            "Maraudon",
-            "Ragefire Chasm",
-            "Razorfen Downs",
-            "Razorfen Kraul",
-            "Scarlet Halls",
-            "Scarlet Monastery",
-            "Scholomance",
-            "The Stockade",
-            "The Temple of Atal'Hakkar",
-            "Uldaman",
-            "Wailing Caverns",
-            "Zul'Farrak",
-        ],
-        "raids": {
-            "Molten Core": [
-                "Lucifron",
-                "Magmadar",
-                "Gehennas",
-                "Garr",
-                "Shazzrah",
-                "Baron Geddon",
-                "Sulfuron Harbinger",
-                "Golemagg the Incinerator",
-                "Majordomo Executus",
-                "Ragnaros",
-            ],
-            "Blackwing Lair": [
-                "Razorgore the Untamed",
-                "Vaelastrasz the Corrupt",
-                "Broodlord Lashlayer",
-                "Firemaw",
-                "Ebonroc",
-                "Flamegor",
-                "Chromaggus",
-                "Nefarian",
-            ],
-            "Ruins of Ahn'Qiraj": [
-                "Kurinnaxx",
-                "General Rajaxx",
-                "Moam",
-                "Buru the Gorger",
-                "Ayamiss the Hunter",
-                "Ossirian the Unscarred",
-            ],
-            "Temple of Ahn'Qiraj": [
-                "The Prophet Skeram",
-                "Silithid Royalty",
-                "Battleguard Sartura",
-                "Fankriss the Unyielding",
-                "Thruk",
-                "Viscidus",
-                "Princess Huhuran",
-                "Executioner Gore",
-                "The Twin Emperors",
-                "Ouro",
-                "C'Thun",
-            ],
-            "Blackrock Depths": [
-                "High Interrogator Gerstahn",
-                "Lord Roccor",
-                "Houndmaster Grebmar",
-                "Ring of Law",
-                "Pyromancer Loregrain",
-                "Lord Incendius",
-                "Warden Stilgiss",
-                "Fineous Darkvire",
-                "Bael'Gar",
-                "General Angerforge",
-                "Golem Lord Argelmach",
-                "Hurley Blackbreath",
-                "Phalanx",
-                "Plugger Spazzring",
-                "Ambassador Flamelash",
-                "The Seven",
-                "Magmus",
-                "Emperor Dagran Thaurissan",
-            ],
-        },
-    },
-    "burning crusade": {
-        "dungeons": [
-            "Auchenai Crypts",
-            "Hellfire Ramparts",
-            "Magisters' Terrace",
-            "Mana Tombs",
-            "Old Hillsbrad Foothills",
-            "Sethekk Halls",
-            "Shadow Labyrinth",
-            "The Alcatraz",
-            "The Black Moras",
-            "The Blood Furnace",
-            "The Botanica",
-            "The Mechanar",
-            "The Shattered Halls",
-            "The Slave Pens",
-            "The Steamvault",
-            "The Underbog",
-        ],
-        "raids": {
-            "Karazhan": [
-                "Servant's Quarters",
-                "Attumen the Huntsman",
-                "Moroes",
-                "Maiden of Virtue",
-                "Opera Hall",
-                "The Curator",
-                "Terestian Illhoof",
-                "Netherspite",
-                "Princess Malchezaar",
-            ],
-            "Gruul's Lair": [
-                "High King Maulgar",
-                "Gruul the Dragonkiller",
-            ],
-            "Magtheridon's Lair": [
-                "Magtheridon",
-            ],
-            "Serpentshrine Cavern": [
-                "Hydross the Unstable",
-                "The Lurker Below",
-                "Leotheras the Blind",
-                "Fathom-Lord Karathress",
-                "Morogrim Tidewalker",
-                "Lady Vashj",
-            ],
-            "The Eye": [
-                "Al'ar",
-                "Void Reaver",
-                "High Astromancer Solarian",
-                "Kael'thas Sunstrider",
-            ],
-            "The Battle For Mount Hyjal": [
-                "Rage Winterchill",
-                "Anetheron",
-                "Kaz'rogal",
-                "Azgalor",
-                "Archimonde",
-            ],
-            "Black Temple": [
-                "High Warlord Naj'entus",
-                "Supremus",
-                "Shade of Akama",
-                "Teron Gorefiend",
-                "Gurtogg Bloodboil",
-                "Reliquary of Souls",
-                "Mother Shahraz",
-                "The Illidari Council",
-                "Illidan Stormrage",
-            ],
-            "Sunwell Plateau": [
-                "Kalecgos",
-                "Brutallus",
-                "Felmyst",
-                "Eredar Twins",
-                "M'uru",
-                "Kil'jaeden",
-            ],
-        },
-    },
-    "wrath of the lich king": {
-        "dungeons": [
-            "Ahn'kahet: The Old Kingdom",
-            "Azjol-Nerub",
-            "Drak'Tharon Keep",
-            "Gundrak",
-            "Halls of Lightning",
-            "Halls of Reflection",
-            "Halls of Stone",
-            "Pit of Saron",
-            "The Culling of Stratholme",
-            "The Forge of Souls",
-            "The Nexus",
-            "The Oculus",
-            "The Violet Hold",
-            "Trial of the Champion",
-            "Utgarde Keep",
-            "Utgarde Pinnacle",
-        ],
-        "raids": {
-            "Vault of Archavon": [
-                "Archavon the Stone Watcher",
-                "Emalon the Storm Watcher",
-                "Koralon the Flame Watcher",
-                "Toravon the Ice Watcher",
-            ],
-            "Naxxramas": [
-                "Anub'Rekhan",
-                "Grand Widow Faerlina",
-                "Maexxna",
-                "Noth the Plaguebringer",
-                "Heigan the Unclean",
-                "Loatheb",
-                "Instructor Razuvious",
-                "Gothik the Harvester",
-                "The Four Horsemen",
-                "Patchwerk",
-                "Grobbulus",
-                "Gluth",
-                "Thaddius",
-                "Sapphiron",
-                "Kel'Thuzad",
-            ],
-            "The Obsidian Sanctum": [
-                "Sartharion",
-            ],
-            "The Eye of Eternity": [
-                "Malygos",
-            ],
-            "Ulduar": [
-                "Flame Leviathan",
-                "Ignis the Furnace Master",
-                "Razorscale",
-                "XT-002 Deconstructor",
-                "Assembly of Iron",
-                "Kologarn",
-                "Auriaya",
-                "Hodir",
-                "Thorim",
-                "Freya",
-                "Mimiron",
-                "General Vezax",
-                "Yogg-Saron",
-                "Algalon the Observer",
-            ],
-            "Trial of the Crusader": [
-                "The Northrend Beasts",
-                "Lord Jaraxxus",
-                "Faction Champions",
-                "Twin Val'kyr",
-                "Anub'arak",
-            ],
-            "Onyxia's Lair": [
-                "Onyxia",
-            ],
-            "Icecrown Citadel": [
-                "Lord Marrowgar",
-                "Lady Deathwhisper",
-                "Gunship Battle",
-                "Deathbringer Saurfang",
-                "Festergut",
-                "Rotface",
-                "Professor Putricide",
-                "Blood Prince Council",
-                "Blood-Queen Lana'thel",
-                "Valithria Dreamwalker",
-                "Sindragosa",
-                "The Lich King",
-            ],
-            "The Ruby Sanctum": [
-                "Halion",
-            ],
-        },
-    },
-    "cataclysm": {
-        "dungeons": [
-            "Blackrock Caverns",
-            "Deadmines",
-            "End Time",
-            "Grim Batol",
-            "Halls of Orgination",
-            "Hour of Twilight",
-            "Lost City of the Tol'vir",
-            "Shadowfang Keep",
-            "The Stonecore",
-            "The Vortex Pinnacle",
-            "Throne of the Tides",
-            "Well of Eternity",
-            "Zul'Aman",
-            "Zul'Gurub",
-        ],
-        "raids": {
-            "Baradin Hold": [
-                "Argaloth",
-                "Occu'thar",
-                "Alizabal, Mistress of Hate",
-            ],
-            "Blackwing Descent": [
-                "Omnotron Defense System",
-                "Magmaw",
-                "Atramedes",
-                "Chimaeron",
-                "Maloriak",
-                "Nefarian's End",
-            ],
-            "The Bastion of Twilight": [
-                "Halfus Wyrmbreaker",
-                "Theralion and Valiona",
-                "Ascendant Council",
-                "Cho'gall",
-                "Sinestra",
-            ],
-            "Throne of the Four Winds": [
-                "The Conclave of Wind",
-                "Al'Akir",
-            ],
-            "Firelands": [
-                "Beth'tilac",
-                "Lord Rhyolith",
-                "Alysrazor",
-                "Shannox",
-                "Baleroc, the GateKeeper",
-                "Majordomo Staghelm",
-                "Ragnaros",
-            ],
-            "Dragon Soul": [
-                "Morchok",
-                "Warlord Zon'ozz",
-                "Yor'sahj the Unsleeping",
-                "Hagara the Stormbinder",
-                "Ultraxion",
-                "Warmaster Blackhorn",
-                "Spine of Deathwing",
-                "Madness of Deathwing",
-            ],
-        },
-    },
-    "mists of pandaria": {
-        "dungeons": [
-            "Gate of the Setting Sun",
-            "Mogun'shan Palace",
-            "Scarlet Halls",
-            "Scarlet Monastery",
-            "Scholomance",
-            "Shado-Pan Monastery",
-            "Siege of Niuzao Temple",
-            "Stormstout Brewery",
-            "Temple of the Jade Serpent",
-        ],
-        "raids": {
-            "Mogu'shan Vaults": [
-                "The Stone Guard",
-                "Feng the Accursed",
-                "Gara'jal the Spiritbinder",
-                "The Spirit Kings",
-                "Elegon",
-                "Will of the Emperor",
-            ],
-            "Heart of Fear": [
-                "Imperial Vizier Zor'lok",
-                "Blade Lord Ta'yak",
-                "Garalon",
-                "Wind Lord Mel'jarak",
-                "Amber-Shaper Un'sok",
-                "Grand Empress Shek'zeer",
-            ],
-            "Terrace of Endless Spring": [
-                "Protectors of the Endless",
-                "Tsulong",
-                "Lei Shi",
-                "Sha of Fear",
-            ],
-            "Throne of Thunder": [
-                "Jin'rokh the Breaker",
-                "Horridon",
-                "Council of Elders",
-                "Tortos",
-                "Megaera",
-                "Ji-Kun",
-                "Durumu the Forgotten",
-                "Primordius",
-                "Dark Animus",
-                "Iron Qon",
-                "Twin Empyreans",
-                "Lei Shen",
-                "Ra-den",
-            ],
-            "Siege of Orgrimmar": [
-                "Immerseus",
-                "The Fallen Protectors",
-                "Norushen",
-                "Sha of Pride",
-                "Galakras",
-                "Iron Juggernaut",
-                "Kor'kron Dark Shaman",
-                "General Nazgrim",
-                "Malkorok",
-                "Spoils of Pandaria",
-                "Thok the Bloodthirsty",
-                "Siegecrafter Blackfuse",
-                "Paragons of the Klaxxi",
-                "Garrosh Hellscream",
-            ],
-        },
-    },
-    "warlords of draenor": {
-        "dungeons": [
-            "Auchidoun",
-            "Bloodmaul Slag Mines",
-            "Grimrail Depot",
-            "Iron Docks",
-            "Shadowmoon Burial Grounds",
-            "Skyreach",
-            "The Everbloom",
-            "Upper Blackrock Spire",
-        ],
-        "raids": {
-            "Highmaul": [
-                "Kargath Bladefist",
-                "The Butcher",
-                "Tectus",
-                "Brackenspore",
-                "Twin Ogron",
-                "Ko'ragh",
-                "Imperator Mar'gok",
-            ],
-            "Blackrock Foundry": [
-                "Oregorger",
-                "Hans'gar and Franzok",
-                "Beastlord Darmac",
-                "Gruul",
-                "Flamebender Ka'graz",
-                "Operator Thogar",
-                "The Blast Furnace",
-                "Kromog",
-                "The Iron Maidens",
-                "Blackhand",
-            ],
-            "Hellfire Citadel": [
-                "Hellfire Assault",
-                "Iron Reaver",
-                "Kormrok",
-                "Hellfire High Council",
-                "Kilrogg Deadeye",
-                "Gorefiend",
-                "Shadow-Lord Iskar",
-                "Socrethar the Eternal",
-                "Fel Lord Zakuun",
-                "Xhul'horac",
-                "Tyrant Velhari",
-                "Mannoroth",
-                "Archimonde",
-            ],
-        },
-    },
-    "legion": {
-        "dungeons": [
-            "Assault Violet Hold",
-            "Black Rook Hold",
-            "Cathedral of Eternal Night",
-            "Court of Stars",
-            "Darkheart Thicket",
-            "Eye of Azshara",
-            "Halls of Valor",
-            "Maw of Souls",
-            "Neltharion's Lair",
-            "Return to Karazhan",
-            "Seat of the Triumvirate",
-            "The Arcway",
-            "Vault of the Wardens",
-        ],
-        "raids": {
-            "The Emerald Nightmare": [
-                "Nythendra",
-                "Il'gynoth, Heart of Corruption",
-                "Elerethe Renferal",
-                "Ursoc",
-                "Dragons of Nightmare",
-                "Cenarius",
-                "Xavius",
-            ],
-            "Trial of Valor": [
-                "Odyn",
-                "Guarm",
-                "Helya",
-            ],
-            "The Nighthold": [
-                "Skorpyron",
-                "Chronomatic Anomaly",
-                "Trilliax",
-                "Spellblade Aluriel",
-                "Tichondrius",
-                "Krosus",
-                "High Botanist Tel'arn",
-                "Star Augur Etraeus",
-                "Grand Magistrix Elisande",
-                "Gul'dan",
-            ],
-            "Tomb of Sargeras": [
-                "Goroth",
-                "Demonic Inquisition",
-                "Harjatan",
-                "Sisters of the Moon",
-                "Mistress Sassz'ine",
-                "The Desolate Host",
-                "Maiden of Vigilance",
-                "Fallen Avatar",
-                "Kil'jaeden",
-            ],
-            "Antorus, the Burnin Throne": [
-                "Garothi Worldbreaker",
-                "Felhounds of Sargeras",
-                "Antoran High Command",
-                "Portal Keeper Hasabel",
-                "Eonar the Life-Binder",
-                "Imonar the Soulhunter",
-                "Kin'garoth",
-                "Varimathras",
-                "The Coven of Shivarra",
-                "Aggramar",
-                "Argus the Unmaker",
-            ],
-        },
-    },
-    "battle for azeroth": {
-        "dungeons": [
-            "Atal'Dazar",
-            "Freehold",
-            "Kings' Rest",
-            "Operation: Mechagon",
-            "Shrine of the Storm",
-            "Siege of Boralus",
-            "Temple of Sethraliss",
-            "The MOTHERLODE!!",
-            "The Underrot",
-            "Tol Dagor",
-            "Waycrest Manor",
-        ],
-        "raids": {
-            "Uldir": [
-                "Taloc",
-                "MOTHER",
-                "Fetid Devourer",
-                "Zek'voz, Herald of N'zoth",
-                "Vectis",
-                "Zul, Reborn",
-                "Mythrax the Unraveler",
-                "G'huun",
-            ],
-            "Battle of Dazar'alor": [
-                "Frida Ironbellows",
-                "Ra'wani Kanae",
-                "Grong the Revenant",
-                "Grong, the Jungle Lord",
-                "Ma'ra Grimfang",
-                "Anathos Firecaller",
-                "Manceroy Flamefist",
-                "Mestrah",
-                "Opulence",
-                "Conclave of the Chosen",
-                "King Rastakhan",
-                "High Tinker Mekkatorque",
-                "Stormwall Blockade",
-                "Lady Jaina Proudmoore",
-                # "horde": [
-                #         "Frida Ironbellows",
-                #         "Grong, the Jungle Lord",
-                #         "Jadefire Masters",
-                #         "High Tinker Mekkatorque",
-                #         "Stormwall Blockade",
-                #         "Lady Jaina Proudmoore",
-                #     ],
-                # "alliance": [
-                #         "Ra'wani Kanae",
-                #         "Grong the Revenant",
-                #         "Jadefire Masters",
-                #         "Opulence",
-                #         "Stormwall Blockade",
-                #         "Lady Jaina Proudmoore",
-                #     ],
-                # TODO: add logic to differentiate between horde and alliance
-            ],
-            "Crucible of Storms": [
-                "The Restless Cabal",
-                "Uu'nat, Harbinger of the void",
-            ],
-            "The Eternal Palace": [
-                "Abyssal Commander Sivara",
-                "Blackwater Behemoth",
-                "Radiance of Azshara",
-                "Lady Ashvane",
-                "Orgozoa",
-                "The Queen's Court",
-                "Za'qul, Harbinger of Ny'alotha",
-                "Queen Azshara",
-            ],
-            "Ny'alotha the Waking City": [
-                "Wrathion, the Black Emperor",
-                "Maut",
-                "The Prophet Skitra",
-                "Dark Inquisitor Xanesh",
-                "The Hivemind",
-                "Shad'har the insatiable",
-                "Drest'agath",
-                "Il'gunoth, Corruption Reborn",
-                "Vexiona",
-                "Ra-den the Despoiled",
-                "Carapace of N'Zoth",
-                "N'Zoth the Corruptor",
-            ],
-        },
-    },
-    "shadowlands": {
-        "dungeons": [
-            "De Other Side",
-            "Halls of Atonement",
-            "Mists of Tirna Scithe",
-            "Plaguefall",
-            "Sanguine Depths",
-            "Spires of Ascension",
-            "Tazavesh, the Veiled Market",
-            "The Necrotic Wake",
-            "Theater of Pain",
-        ],
-        "raids": {
-            "Castle Nathria": [
-                "Shriekwing",
-                "Huntsman Altimor",
-                "Sun King's Salvation",
-                "Artificier Xy'mox",
-                "Hungering Destroyer",
-                "Lady Inerva Darkvein",
-                "The Council of Blood",
-                "Sludgefist",
-                "Stone Legion Generals",
-                "Sire Denathrius",
-            ],
-            "Sanctum of Domination": [
-                "The Tarragrue",
-                "The Eye of the Jailer",
-                "The Nine",
-                # TODO: list all NPCs
-                "Remnant of Ner'zhul",
-                "Soulrender Dormazain",
-                "Painsmith Raznal",
-                "Guardian of the First Ones",
-                "Fatescribe",
-                "Kel'Thuzad",
-                "Sylvanas Windrunner",
-            ],
-            "Sepulcher of the First Ones": [
-                "Vigilant Guardian",
-                "Skolex, the Insatiable Ravener",
-                "Artificer Xy'mox",
-                "Dausegne, the Fallen Oracle",
-                "Prototype Pantheon",
-                "Lihuvim, Principal Architect",
-                "Halondrus the Reclaimer",
-                "Anduin Wrynn",
-                "Lords of Dread",
-                # TODO: list npcs
-                "Rygelon",
-                "The Jailer",
-            ],
-        },
-    },
-    "dragonflight": {
-        "dungeons": [
-            "Algeth'ar Academy",
-            "Brackenhide Hollow",
-            "Halls of Infunsion",
-            "Neltharus",
-            "Ruby Life Pools",
-            "The Azure Vault",
-            "The Nokhud Offensive",
-            "Uldaman: Legacy of Tyr",
-            "Dawn of the Infinite",
-        ],
-        "raids": {
-            "Vault of the Incarnates": [
-                "Eranog",
-                "Terros",
-                "The Primal Council",
-                "Sennarth, the Cold Breath",
-                "Dathea, Ascended",
-                "Kurog Grimtotem",
-                "Bloodkeeper Diurna",
-                "Raszageth the Storm-Eater",
-            ],
-            "Aberrus, the Shadowed Crucible": [
-                "Kazzara, the Hellforged",
-                "The Amalgamation Chamber",
-                "The Forgotten Experiments",
-                "Assault of Zaqali",
-                "Rashok, the Elder",
-                "The Vigilant Steward, Zskarn",
-                "Magmorax",
-                "Echo of Neltharion",
-                "Scalecommander Sarkareth",
-            ],
-            "Amirdrassil, the Dream's Hope": [
-                "Gnarlroot",
-                "Igira the Cruel",
-                "Volcoross",
-                "Council of Dreams",
-                "Larodar, Keeper of the Flame",
-                "Nymue, Weaver of the Cycle",
-                "Smolderon",
-                "Tindral Sageswift, Seer of the Flame",
-                "Fyrakk the Blazing",
-            ],
-        },
-    },
-    "the war within": {
-        "dungeons": [
-            "Ara-Kara, City of Echoes",
-            "Cinderbrew Meadery",
-            "City of Threads",
-            "Darkflame Cleft",
-            "Priory of the Sacred Flame",
-            "The Dawnbreaker",
-            "The Rookery",
-            "The Stonevault",
-            "OPERATION: FLOODGATE",
-        ],
-        "raids": {
-            "Nerub-ar Palace": [
-                "Ulgrax the Devourer",
-                "The Bloodbound Horror",
-                "Sikran, Captain of the Sureki",
-                "Rasha'nan",
-                "Broodtwister Ovi'nax",
-                "Nexus-Princess Ky'veza",
-                "The Silken Court",
-                "Queen Ansurek",
-            ],
-            "Liberation of Undermine": [
-                "Vexie and the Geargrinders",
-                "Cauldron of Carnage",
-                "Rik Reverb",
-                "Stix Bunkjunker",
-                "Sprocketmonger Lockenstock",
-                "The One-Armed Bandit",
-                "Mug'Zee, Heads of Security",
-                "Chrome King Gallywix",
-            ],
-        },
-    },
-    "current season": {
-        "dungeons": [
-            "Cinderbrew Meadery",
-            "Darkflame Cleft",
-            "Priory of the Sacred Flame",
-            "The Rookery",
-            "OPERATION: FLOODGATE",
-            "Theater of Pain",
-            "Operation: Mechagon",
-            "The MOTHERLODE!!",
-        ],
-        "raids": {
-            "Liberation of Undermine": [
-                "Vexie and the Geargrinders",
-                "Cauldron of Carnage",
-                "Rik Reverb",
-                "Stix Bunkjunker",
-                "Sprocketmonger Lockenstock",
-                "The One-Armed Bandit",
-                "Mug'Zee, Heads of Security",
-                "Chrome King Gallywix",
-            ],
-        },
-    },
-}
+# List all the encounter NAMES you want to include under raids
+TARGET_ENCOUNTERS = [
+    "High Interrogator Gerstahn",
+    "Lord Roccor",
+    "Houndmaster Grebmar",
+    "Ring of Law",
+    "Pyromancer Loregrain",
+    "Lord Incendius",
+    "Warder Stilgiss",
+    "Fineous Darkvire",
+    "Bael'Gar",
+    "General Angerforge",
+    "Golem Lord Argelmach",
+    "Hurley Blackbreath",
+    "Phalanx",
+    "Plugger Spazzring",
+    "Ambassador Flamelash",
+    "The Seven",
+    "Magmus",
+    "Emperor Dagran Thaurissan",
+    "Magmadar",
+    "Gehennas",
+    "Garr",
+    "Shazzrah",
+    "Baron Geddon",
+    "Sulfuron Harbinger",
+    "Golemagg the Incinerator",
+    "Majordomo Executus",
+    "Ragnaros",
+    "Razorgore the Untamed",
+    "Vaelastrasz the Corrupt",
+    "Broodlord Lashlayer",
+    "Firemaw",
+    "Ebonroc",
+    "Flamegor",
+    "Chromaggus",
+    "Nefarian",
+    "Kurinnaxx",
+    "General Rajaxx",
+    "Moam",
+    "Buru the Gorger",
+    "Ayamiss the Hunter",
+    "Ossirian the Unscarred",
+    "The Prophet Skeram",
+    "Silithid Royalty",
+    "Battleguard Sartura",
+    "Fankriss the Unyielding",
+    "Viscidus",
+    "Princess Huhuran",
+    "Executioner Gore",
+    "The Twin Emperors",
+    "Ouro",
+    "C'Thun",
+    "Servant's Quarters",
+    "Attumen the Huntsman",
+    "Moroes",
+    "Maiden of Virtue",
+    "Opera Hall",
+    "The Curator",
+    "Terestian Illhoof",
+    "Netherspite",
+    "Prince Malchezaar",
+    "High King Maulgar",
+    "Gruul the Dragonkiller",
+    "Magtheridon",
+    "Hydross the Unstable",
+    "The Lurker Below",
+    "Leotheras the Blind",
+    "Fathom-Lord Karathress",
+    "Morogrim Tidewalker",
+    "Lady Vashj",
+    "Al'ar",
+    "Void Reaver",
+    "High Astromancer Solarian",
+    "Kael'thas Sunstrider",
+    "Rage Winterchill",
+    "Anetheron",
+    "Kaz'rogal",
+    "Azgalor",
+    "Archimonde",
+    "High Warlord Naj'entus",
+    "Supremus",
+    "Shade of Akama",
+    "Teron Gorefiend",
+    "Gurtogg Bloodboil",
+    "Reliquary of Souls",
+    "Mother Shahraz",
+    "The Illidari Council",
+    "Illidan Stormrage",
+    "Kalecgos",
+    "Brutallus",
+    "Felmyst",
+    "The Eredar Twins",
+    "M'uru",
+    "Kil'jaeden",
+    "Archavon the Stone Watcher",
+    "Emalon the Storm Watcher",
+    "Koralon the Flame Watcher",
+    "Toravon the Ice Watcher",
+    "Anub'Rekhan",
+    "Grand Widow Faerlina",
+    "Maexxna",
+    "Noth the Plaguebringer",
+    "Heigan the Unclean",
+    "Loatheb",
+    "Instructor Razuvious",
+    "Gothik the Harvester",
+    "The Four Horsemen",
+    "Patchwerk",
+    "Grobbulus",
+    "Gluth",
+    "Thaddius",
+    "Sapphiron",
+    "Kel'Thuzad",
+    "Sartharion",
+    "Malygos",
+    "Flame Leviathan",
+    "Ignis the Furnace Master",
+    "Razorscale",
+    "XT-002 Deconstructor",
+    "The Assembly of Iron",
+    "Kologarn",
+    "Auriaya",
+    "Hodir",
+    "Thorim",
+    "Freya",
+    "Mimiron",
+    "General Vezax",
+    "Yogg-Saron",
+    "Algalon the Observer",
+    "The Northrend Beasts",
+    "Lord Jaraxxus",
+    "Champions of the Alliance",
+    "Champions of the Horde",
+    "Twin Val'kyr",
+    "Anub'arak",
+    "Onyxia",
+    "Lord Marrowgar",
+    "Lady Deathwhisper",
+    "Icecrown Gunship Battle",
+    "Deathbringer Saurfang",
+    "Festergut",
+    "Rotface",
+    "Professor Putricide",
+    "Blood Prince Council",
+    "Blood-Queen Lana'thel",
+    "Valithria Dreamwalker",
+    "Sindragosa",
+    "The Lich King",
+    "Halion",
+    "Argaloth",
+    "Occu'thar",
+    "Alizabal, Mistress of Hate",
+    "Omnotron Defense System",
+    "Magmaw",
+    "Atramedes",
+    "Chimaeron",
+    "Maloriak",
+    "Nefarian's End",
+    "Halfus Wyrmbreaker",
+    "Theralion and Valiona",
+    "Ascendant Council",
+    "Cho'gall",
+    "Sinestra",
+    "The Conclave of Wind",
+    "Al'Akir",
+    "Beth'tilac",
+    "Lord Rhyolith",
+    "Alysrazor",
+    "Shannox",
+    "Baleroc, the GateKeeper",
+    "Majordomo Staghelm",
+    "Ragnaros",
+    "Morchok",
+    "Warlord Zon'ozz",
+    "Yor'sahj the Unsleeping",
+    "Hagara the Stormbinder",
+    "Ultraxion",
+    "Warmaster Blackhorn",
+    "Spine of Deathwing",
+    "Madness of Deathwing",
+    "The Stone Guard",
+    "Feng the Accursed",
+    "Gara'jal the Spiritbinder",
+    "The Spirit Kings",
+    "Elegon",
+    "Will of the Emperor",
+    "Imperial Vizier Zor'lok",
+    "Blade Lord Ta'yak",
+    "Garalon",
+    "Wind Lord Mel'jarak",
+    "Amber-Shaper Un'sok",
+    "Grand Empress Shek'zeer",
+    "Protectors of the Endless",
+    "Tsulong",
+    "Lei Shi",
+    "Sha of Fear",
+    "Jin'rokh the Breaker",
+    "Horridon",
+    "Council of Elders",
+    "Tortos",
+    "Megaera",
+    "Ji-Kun",
+    "Durumu the Forgotten",
+    "Primordius",
+    "Dark Animus",
+    "Iron Qon",
+    "Twin Empyreans",
+    "Lei Shen",
+    "Ra-den",
+    "Immerseus",
+    "The Fallen Protectors",
+    "Norushen",
+    "Sha of Pride",
+    "Galakras",
+    "Iron Juggernaut",
+    "Kor'kron Dark Shaman",
+    "General Nazgrim",
+    "Malkorok",
+    "Spoils of Pandaria",
+    "Thok the Bloodthirsty",
+    "Siegecrafter Blackfuse",
+    "Paragons of the Klaxxi",
+    "Garrosh Hellscream",
+    "Kargath Bladefist",
+    "The Butcher",
+    "Tectus",
+    "Brackenspore",
+    "Twin Ogron",
+    "Ko'ragh",
+    "Imperator Mar'gok",
+    "Oregorger",
+    "Hans'gar and Franzok",
+    "Beastlord Darmac",
+    "Gruul",
+    "Flamebender Ka'graz",
+    "Operator Thogar",
+    "The Blast Furnace",
+    "Kromog",
+    "The Iron Maidens",
+    "Blackhand",
+    "Hellfire Assault",
+    "Iron Reaver",
+    "Kormrok",
+    "Hellfire High Council",
+    "Kilrogg Deadeye",
+    "Gorefiend",
+    "Shadow-Lord Iskar",
+    "Socrethar the Eternal",
+    "Fel Lord Zakuun",
+    "Xhul'horac",
+    "Tyrant Velhari",
+    "Mannoroth",
+    "Archimonde",
+    "Nythendra",
+    "Il'gynoth, Heart of Corruption",
+    "Elerethe Renferal",
+    "Ursoc",
+    "Dragons of Nightmare",
+    "Cenarius",
+    "Xavius",
+    "Odyn",
+    "Guarm",
+    "Helya",
+    "Skorpyron",
+    "Chronomatic Anomaly",
+    "Trilliax",
+    "Spellblade Aluriel",
+    "Tichondrius",
+    "Krosus",
+    "High Botanist Tel'arn",
+    "Star Augur Etraeus",
+    "Grand Magistrix Elisande",
+    "Gul'dan",
+    "Goroth",
+    "Demonic Inquisition",
+    "Harjatan",
+    "Sisters of the Moon",
+    "Mistress Sassz'ine",
+    "The Desolate Host",
+    "Maiden of Vigilance",
+    "Fallen Avatar",
+    "Kil'jaeden",
+    "Garothi Worldbreaker",
+    "Felhounds of Sargeras",
+    "Antoran High Command",
+    "Portal Keeper Hasabel",
+    "Eonar the Life-Binder",
+    "Imonar the Soulhunter",
+    "Kin'garoth",
+    "Varimathras",
+    "The Coven of Shivarra",
+    "Aggramar",
+    "Argus the Unmaker",
+    "Taloc",
+    "MOTHER",
+    "Fetid Devourer",
+    "Zek'voz, Herald of N'zoth",
+    "Vectis",
+    "Zul, Reborn",
+    "Mythrax the Unraveler",
+    "G'huun",
+    "Champion of the Light",
+    "Grong, the Jungle Lord",
+    "Grong, the Revenant",
+    "Jadefire Masters",
+    "Opulence",
+    "Conclave of the Chosen",
+    "King Rastakhan",
+    "High Tinker Mekkatorque",
+    "Stormwall Blockade",
+    "Lady Jaina Proudmoore",
+    "The Restless Cabal",
+    "Uu'nat, Harbinger of the void",
+    "Abyssal Commander Sivara",
+    "Blackwater Behemoth",
+    "Radiance of Azshara",
+    "Lady Ashvane",
+    "Orgozoa",
+    "The Queen's Court",
+    "Za'qul, Harbinger of Ny'alotha",
+    "Queen Azshara",
+    "Wrathion, the Black Emperor",
+    "Maut",
+    "The Prophet Skitra",
+    "Dark Inquisitor Xanesh",
+    "The Hivemind",
+    "Shad'har the insatiable",
+    "Drest'agath",
+    "Il'gynoth, Corruption Reborn",
+    "Vexiona",
+    "Ra-den the Despoiled",
+    "Carapace of N'Zoth",
+    "N'Zoth the Corruptor",
+    "Shriekwing",
+    "Huntsman Altimor",
+    "Sun King's Salvation",
+    "Artificer Xy'mox",
+    "Hungering Destroyer",
+    "Lady Inerva Darkvein",
+    "The Council of Blood",
+    "Sludgefist",
+    "Stone Legion Generals",
+    "Sire Denathrius",
+    "The Tarragrue",
+    "The Eye of the Jailer",
+    "The Nine",
+    "Remnant of Ner'zhul",
+    "Soulrender Dormazain",
+    "Painsmith Raznal",
+    "Guardian of the First Ones",
+    "Fatescribe Roh-Kalo",
+    "Kel'Thuzad",
+    "Sylvanas Windrunner",
+    "Vigilant Guardian",
+    "Skolex, the Insatiable Ravener",
+    "Artificer Xy'mox",
+    "Dausegne, the Fallen Oracle",
+    "Prototype Pantheon",
+    "Lihuvim, Principal Architect",
+    "Halondrus the Reclaimer",
+    "Anduin Wrynn",
+    "Lords of Dread",
+    "Rygelon",
+    "The Jailer",
+    "Eranog",
+    "Terros",
+    "The Primal Council",
+    "Sennarth, the Cold Breath",
+    "Dathea, Ascended",
+    "Kurog Grimtotem",
+    "Broodkeeper Diurna",
+    "Raszageth the Storm-Eater",
+    "Kazzara, the Hellforged",
+    "The Amalgamation Chamber",
+    "The Forgotten Experiments",
+    "Assault of the Zaqali",
+    "Rashok, the Elder",
+    "The Vigilant Steward, Zskarn",
+    "Magmorax",
+    "Echo of Neltharion",
+    "Scalecommander Sarkareth",
+    "Gnarlroot",
+    "Igira the Cruel",
+    "Volcoross",
+    "Council of Dreams",
+    "Larodar, Keeper of the Flame",
+    "Nymue, Weaver of the Cycle",
+    "Smolderon",
+    "Tindral Sageswift, Seer of the Flame",
+    "Fyrakk the Blazing",
+    "Ulgrax the Devourer",
+    "The Bloodbound Horror",
+    "Sikran, Captain of the Sureki",
+    "Rasha'nan",
+    "Broodtwister Ovi'nax",
+    "Nexus-Princess Ky'veza",
+    "The Silken Court",
+    "Queen Ansurek",
+    "Vexie and the Geargrinders",
+    "Cauldron of Carnage",
+    "Rik Reverb",
+    "Stix Bunkjunker",
+    "Sprocketmonger Lockenstock",
+    "The One-Armed Bandit",
+    "Mug'Zee, Heads of Security",
+    "Chrome King Gallywix",
+]
 
 # ——————————————————————————————————————————————
 # LOGGER SETUP
 # ——————————————————————————————————————————————
-
-logger = logging.getLogger("by_expansion")
+logger = logging.getLogger("wow_gen")
 logger.setLevel(logging.INFO)
-
 ch = logging.StreamHandler()
 ch.setLevel(logging.INFO)
-
-# Console handler
-ch = logging.StreamHandler()
-ch.setLevel(logging.INFO)
-
-# File handler
 fh = logging.FileHandler(LOG_PATH, encoding="utf-8")
 fh.setLevel(logging.INFO)
-
 fmt = logging.Formatter("%(asctime)s %(levelname)s: %(message)s")
 ch.setFormatter(fmt)
 fh.setFormatter(fmt)
-
 logger.addHandler(ch)
 logger.addHandler(fh)
 
 
 # ——————————————————————————————————————————————
-# RATE LIMITER
+# RATE LIMITER (100 req/sec)
 # ——————————————————————————————————————————————
 class RateLimiter:
-    def __init__(self, max_calls: int, period: float):
+    def __init__(self, max_calls, period):
         self.max_calls = max_calls
         self.period = period
         self.calls = deque()
@@ -832,20 +467,16 @@ class RateLimiter:
     def acquire(self):
         with self.lock:
             now = time.monotonic()
-            # remove old calls
+            # drop old
             while self.calls and now - self.calls[0] > self.period:
                 self.calls.popleft()
-            # if we're at limit, wait
             if len(self.calls) >= self.max_calls:
                 wait = self.period - (now - self.calls[0])
                 time.sleep(wait)
-                now = time.monotonic()
-                while self.calls and now - self.calls[0] > self.period:
-                    self.calls.popleft()
-            self.calls.append(now)
+            self.calls.append(time.monotonic())
 
 
-rate_limiter = RateLimiter(max_calls=100, period=1.0)
+rate_limiter = RateLimiter(100, 1.0)
 
 # ——————————————————————————————————————————————
 # HTTP SESSION & MEDIA CACHE
@@ -855,11 +486,10 @@ MEDIA_CACHE = {}
 
 
 # ——————————————————————————————————————————————
-# AUTH (no caching needed)
+# AUTHENTICATION
 # ——————————————————————————————————————————————
-def get_access_token() -> str:
+def get_access_token():
     load_dotenv()
-    logger.info("Fetching new access token")
     resp = SESSION.post(
         TOKEN_URL,
         data={
@@ -873,192 +503,258 @@ def get_access_token() -> str:
 
 
 # ——————————————————————————————————————————————
-# BLIZZARD GET HELPER
+# BLIZZARD GET & MEDIA
 # ——————————————————————————————————————————————
-def blizz_get(path: str, namespace: str, locale: str, **params) -> dict:
+def blizz_get(path, namespace, locale, **params):
+    global API_CALL_COUNT
+    API_CALL_COUNT += 1  # ← count this call
     url = API_BASE + path
     token = get_access_token()
     headers = {"Authorization": f"Bearer {token}"}
     qp = {"namespace": namespace, "locale": locale, **params}
 
     rate_limiter.acquire()
-    logger.info(f"CALL → {url} params={qp}")
+    logger.info(f"CALL #{API_CALL_COUNT} → {url} params={qp}")  # include count in log
     resp = SESSION.get(url, params=qp, headers=headers)
-    try:
-        resp.raise_for_status()
-    except Exception:
+    if resp.status_code != 200:
         logger.error(f"FAILED ← {resp.status_code} {resp.url}")
         return {}
     logger.info(f"RESP  ← {resp.status_code} {resp.url}")
     return resp.json()
 
 
-def fetch_media(path: str, namespace: str, locale: str) -> dict:
+def fetch_media(path, namespace, locale):
     key = (path, namespace, locale)
-    if key in MEDIA_CACHE:
-        return MEDIA_CACHE[key]
-    data = blizz_get(path, namespace, locale)
-    MEDIA_CACHE[key] = data
-    return data
+    if key not in MEDIA_CACHE:
+        MEDIA_CACHE[key] = blizz_get(path, namespace, locale)
+    return MEDIA_CACHE[key]
 
 
-# ——————————————————————————————————————————————
-# INSTANCE PROCESSING FUNCTION
-# ——————————————————————————————————————————————
-def process_instance(name: str, bid: int, kind: str, namespace: str, locale: str):
+def process_encounter(enc_name, eid):
     """
-    Fetch detail, media, encounters, creatures for one instance.
-    Returns a dict record or None on error.
+    Fetch a single encounter’s detail and return a tuple of
+    (expansion_name, instance_id, encounter_record) if it's a RAID,
+    or None if it's not a RAID or on error.
     """
     try:
-        detail = blizz_get(f"/data/wow/journal-instance/{bid}", namespace, locale)
-        desc = detail.get("description")
+        detail = blizz_get(f"/data/wow/journal-encounter/{eid}", GLOBAL_NS, GLOBAL_LO)
+        exp_name = detail.get("expansion", {}).get("name")
+        cat = detail.get("category", {}).get("type")
+        if cat != "RAID":
+            # skip all dungeon encounters
+            return None
 
-        media = fetch_media(
-            f"/data/wow/media/journal-instance/{bid}", namespace, locale
-        )
-        img = next(
-            (a["value"] for a in media.get("assets", []) if a["key"] == "tile"), None
-        )
+        inst = detail["instance"]
+        inst_id = inst["id"]
+        inst_name = inst["name"]
 
-        encounters = []
-        ec_id = 1
-        for enc in detail.get("encounters", []):
-            ebid = enc.get("id")
-            enc_name = enc.get("name")
-            if not ebid:
-                continue
-            edetail = blizz_get(
-                f"/data/wow/journal-encounter/{ebid}", namespace, locale
+        # build encounter record
+        creatures = detail.get("creatures", [])
+        first = creatures[0] if creatures else {}
+        disp = first.get("creature_display", {}).get("id")
+        cimg = None
+        if disp:
+            media = fetch_media(
+                f"/data/wow/media/creature-display/{disp}", GLOBAL_NS, GLOBAL_LO
             )
-            enc_desc = edetail.get("description")
-
-            creatures = []
-            c_id = 1
-            for c in edetail.get("creatures", []):
-                cid = c.get("id")
-                cname = c.get("name")
-                if not cid:
-                    continue
-                disp = c["creature_display"]["id"]
-                cmedia = fetch_media(
-                    f"/data/wow/media/creature-display/{disp}", namespace, locale
-                )
-                cimg = next(
-                    (
-                        a["value"]
-                        for a in cmedia.get("assets", [])
-                        if a["key"] == "zoom"
-                    ),
-                    None,
-                )
-                creatures.append(
-                    {
-                        "id": c_id,
-                        "blizzard_id": cid,
-                        "creature_display_id": disp,
-                        "name": cname,
-                        "img": cimg,
-                    }
-                )
-                c_id += 1
-
-            encounters.append(
-                {
-                    "id": ec_id,
-                    "blizzard_id": ebid,
-                    "name": enc_name,
-                    "description": enc_desc,
-                    "creatures": creatures,
-                }
+            cimg = next(
+                (a["value"] for a in media.get("assets", []) if a["key"] == "zoom"),
+                None,
             )
-            ec_id += 1
 
-        return {
-            "kind": kind,
-            "record": {
-                "blizzard_id": bid,
-                "name": name,
-                "description": desc,
-                "img": img,
-                "encounters": encounters,
-            },
+        enc_rec = {
+            "blizzard-id": eid,
+            "name": enc_name,
+            "description": detail.get("description"),
+            "creature_display_id": disp,
+            "img": cimg,
         }
+        return exp_name, inst_id, inst_name, enc_rec
     except Exception as e:
-        logger.error(f"Error processing instance {name} ({bid}): {e}")
+        logger.error(f"Error loading encounter '{enc_name}' ({eid}): {e}")
         return None
 
 
 # ——————————————————————————————————————————————
-# MAIN DRIVER
+# MAIN SCRIPT
 # ——————————————————————————————————————————————
 def main():
-    load_dotenv()
-    for exp_name, cfg in EXPANSION_MAP.items():
-        namespace, locale = GLOBAL_NS, GLOBAL_LO
-        dset, rset = set(cfg["dungeons"]), set(cfg["raids"])
+    load_dotenv()  # load CLIENT_ID, CLIENT_SECRET, REGION, LOCALE
 
+    # 0) Prepare container per expansion, including “Current Season”
+    expansions: dict[str, dict[str, dict[int, dict]]] = {
+        "Current Season": {"raids": {}, "dungeons": {}}
+    }
+
+    # 1) Fetch the Current Season expansion (ID 505) to collect its instance IDs
+    season_data = blizz_get("/data/wow/journal-expansion/505", GLOBAL_NS, GLOBAL_LO)
+    season_dungeons = {i["id"] for i in season_data.get("dungeons", []) if i.get("id")}
+    season_raids = {i["id"] for i in season_data.get("raids", []) if i.get("id")}
+    season_inst_ids = season_dungeons | season_raids
+
+    # 2) Build name→encounter_id map
+    enc_idx = blizz_get("/data/wow/journal-encounter/index", GLOBAL_NS, GLOBAL_LO)
+    name_to_eid = {
+        e["name"]: e["id"] for e in enc_idx.get("encounters", []) if e.get("name")
+    }
+
+    # 3) Parallel fetch of TARGET_ENCOUNTERS (only include RAID)
+    def fetch_enc(enc_name: str):
+        eid = name_to_eid.get(enc_name)
+        if not eid:
+            logger.error(f"Encounter not in index: '{enc_name}'")
+            return None
+        detail = blizz_get(f"/data/wow/journal-encounter/{eid}", GLOBAL_NS, GLOBAL_LO)
+        if detail.get("category", {}).get("type") != "RAID":
+            return None
+
+        inst_ref = detail.get("instance", {})
+        inst_id = inst_ref.get("id")
+        inst_name = inst_ref.get("name")
+        if not (inst_id and inst_name):
+            logger.error(f"Missing instance info for '{enc_name}' ({eid})")
+            return None
+
+        # fetch instance detail to know its real expansion
+        inst_detail = blizz_get(
+            f"/data/wow/journal-instance/{inst_id}", GLOBAL_NS, GLOBAL_LO
+        )
+        exp_name = inst_detail.get("expansion", {}).get("name")
+        if not exp_name:
+            logger.error(
+                f"Missing expansion for instance {inst_id} of encounter '{enc_name}'"
+            )
+            return None
+
+        return enc_name, eid, exp_name, inst_id, inst_name, detail
+
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        futures = {pool.submit(fetch_enc, name): name for name in TARGET_ENCOUNTERS}
+        for fut in as_completed(futures):
+            res = fut.result()
+            if not res:
+                continue
+            enc_name, eid, exp_name, inst_id, inst_name, detail = res
+
+            # ensure real expansion bucket exists
+            exp = expansions.setdefault(exp_name, {"raids": {}, "dungeons": {}})
+            raid_bucket = exp["raids"].setdefault(
+                inst_id,
+                {
+                    "blizzard-id": inst_id,
+                    "name": inst_name,
+                    "description": None,
+                    "img": None,
+                    "encounters": [],
+                },
+            )
+
+            # on first creation, fetch instance description & media
+            if raid_bucket["description"] is None:
+                idet = blizz_get(
+                    f"/data/wow/journal-instance/{inst_id}", GLOBAL_NS, GLOBAL_LO
+                )
+                raid_bucket["description"] = idet.get("description")
+                media = fetch_media(
+                    f"/data/wow/media/journal-instance/{inst_id}", GLOBAL_NS, GLOBAL_LO
+                )
+                raid_bucket["img"] = next(
+                    (a["value"] for a in media.get("assets", []) if a["key"] == "tile"),
+                    None,
+                )
+
+            # build encounter record
+            creatures = detail.get("creatures", [])
+            disp = creatures[0]["creature_display"]["id"] if creatures else None
+            cimg = None
+            if disp:
+                cm = fetch_media(
+                    f"/data/wow/media/creature-display/{disp}", GLOBAL_NS, GLOBAL_LO
+                )
+                cimg = next(
+                    (a["value"] for a in cm.get("assets", []) if a["key"] == "zoom"),
+                    None,
+                )
+
+            enc_rec = {
+                "blizzard-id": eid,
+                "name": enc_name,
+                "description": detail.get("description"),
+                "creature_display_id": disp,
+                "img": cimg,
+            }
+            raid_bucket["encounters"].append(enc_rec)
+
+            # 3.5) Also duplicate into Current Season if in that set
+            if inst_id in season_inst_ids:
+                expansions["Current Season"]["raids"][inst_id] = raid_bucket
+
+    # 4) Fetch all dungeon instances and assign to expansions + Current Season
+    inst_idx = blizz_get("/data/wow/journal-instance/index", GLOBAL_NS, GLOBAL_LO)
+    for entry in inst_idx.get("instances", []):
+        iid, iname = entry.get("id"), entry.get("name")
+        det = blizz_get(f"/data/wow/journal-instance/{iid}", GLOBAL_NS, GLOBAL_LO)
+        if det.get("category", {}).get("type") != "DUNGEON":
+            continue
+
+        exp_name = det.get("expansion", {}).get("name")
+        if not exp_name:
+            logger.error(f"Missing expansion for dungeon instance {iid}")
+            continue
+
+        media = fetch_media(
+            f"/data/wow/media/journal-instance/{iid}", GLOBAL_NS, GLOBAL_LO
+        )
+        rec = {
+            "blizzard-id": iid,
+            "name": iname,
+            "description": det.get("description"),
+            "img": next(
+                (a["value"] for a in media.get("assets", []) if a["key"] == "tile"),
+                None,
+            ),
+        }
+
+        # assign to its real expansion
+        exp = expansions.setdefault(exp_name, {"raids": {}, "dungeons": {}})
+        exp["dungeons"][iid] = rec
+
+        # duplicate into Current Season if listed
+        if iid in season_inst_ids:
+            expansions["Current Season"]["dungeons"][iid] = rec
+
+    # 5) Write YAML per expansion, assigning sequential IDs
+    for exp_name, data in expansions.items():
         out_dir = BASE_OUTPUT / exp_name
         out_dir.mkdir(parents=True, exist_ok=True)
 
-        d_list, r_list, u_list = [], [], []
-        d_id = r_id = u_id = 1
-
-        idx = blizz_get("/data/wow/journal-instance/index", namespace, locale)
-        insts = idx.get("instances", [])
-        logger.info(f"[{exp_name}] fetched {len(insts)} instances")
-
-        # classify upfront
-        to_process = []
-        for entry in insts:
-            bid = entry.get("id")
-            name = entry.get("name")
-            if not (bid and name):
-                continue
-            if name in dset:
-                to_process.append((name, bid, "dungeon"))
-            elif name in rset:
-                to_process.append((name, bid, "raid"))
-            else:
-                logger.error(f"[{exp_name}] Unmatched instance: '{name}' (ID: {bid})")
-                u_list.append({"id": u_id, "blizzard_id": bid, "name": name})
-                u_id += 1
-
-        # parallel fetch
-        with ThreadPoolExecutor(max_workers=10) as pool:
-            futures = {
-                pool.submit(process_instance, name, bid, kind, namespace, locale): (
-                    name,
-                    bid,
-                )
-                for name, bid, kind in to_process
-            }
-            for fut in as_completed(futures):
-                res = fut.result()
-                if not res:
-                    continue
-                kind = res["kind"]
-                rec = res["record"]
-                if kind == "dungeon":
-                    rec["id"] = d_id
-                    d_list.append(rec)
-                    d_id += 1
-                else:
-                    rec["id"] = r_id
-                    r_list.append(rec)
-                    r_id += 1
-
-        # write YAML
+        # dungeons.yml
+        seq = 1
+        for inst in data["dungeons"].values():
+            inst["id"] = seq
+            seq += 1
         with (out_dir / "dungeons.yml").open("w", encoding="utf-8") as f:
-            yaml.safe_dump(d_list, f, sort_keys=False, allow_unicode=True)
-        with (out_dir / "raids.yml").open("w", encoding="utf-8") as f:
-            yaml.safe_dump(r_list, f, sort_keys=False, allow_unicode=True)
-        with (out_dir / "unsorted.yml").open("w", encoding="utf-8") as f:
-            yaml.safe_dump(u_list, f, sort_keys=False, allow_unicode=True)
+            yaml.safe_dump(
+                list(data["dungeons"].values()), f, sort_keys=False, allow_unicode=True
+            )
 
+        # raids.yml
+        seq = 1
+        for inst in data["raids"].values():
+            inst["id"] = seq
+            ec_seq = 1
+            for ec in inst["encounters"]:
+                ec["id"] = ec_seq
+                ec_seq += 1
+            seq += 1
+        with (out_dir / "raids.yml").open("w", encoding="utf-8") as f:
+            yaml.safe_dump(
+                list(data["raids"].values()), f, sort_keys=False, allow_unicode=True
+            )
+
+        logger.info(f"Total Blizzard API calls made: {API_CALL_COUNT}")
         logger.info(
-            f"[{exp_name}] wrote {len(d_list)} dungeons, {len(r_list)} raids, "
-            f"{len(u_list)} unsorted to {out_dir}"
+            f"[{exp_name}] wrote {len(data['dungeons'])} dungeons and {len(data['raids'])} raids"
         )
 
 

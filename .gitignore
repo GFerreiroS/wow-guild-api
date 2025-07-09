@@ -5,3 +5,6 @@ __pycache__/
 scripts/data/
 .token_cache.json
 *.log
+
+data/instances/
+log/
