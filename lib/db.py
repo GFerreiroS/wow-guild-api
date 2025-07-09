@@ -46,6 +46,23 @@ class OAuthToken(SQLModel, table=True):
     expires_at: float
 
 
+class Event(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    title: str
+    description: Optional[str] = None
+    start_time: datetime
+    end_time: datetime
+    # foreign key to the user who created it
+    created_by: int = Field(foreign_key="user.id")
+
+
+class EventSignUp(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    event_id: int = Field(foreign_key="event.id")
+    user_id: int = Field(foreign_key="user.id")
+    signed_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+
+
 def reset_db():
     """
     Drops all tables and recreates them from the current models.

@@ -1,13 +1,14 @@
 import base64
 from contextlib import asynccontextmanager
-from datetime import datetime
-from typing import cast
+from datetime import date, datetime
+from typing import Optional, cast
 
-from fastapi import Depends, FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlmodel import Session, select, text
 
 import lib.admin as admin
 import lib.db as db
+import lib.events as events
 import lib.guild as guild
 import lib.schemas as schema
 import lib.wow as wow
@@ -250,6 +251,106 @@ def populate_database(session: Session = Depends(get_session)):
     )
 
     return {"status": "ok"}
+
+
+# ------------------------------
+# Event endpoints
+# ------------------------------
+
+
+@api_app.get(
+    "/events/{event_id}",
+    response_model=schema.EventRead,
+    summary="Get a single event by ID",
+)
+def read_event(event_id: int, session: Session = Depends(get_session)):
+    return events.get_event(event_id, session)
+
+
+# Create event (admin/owner only)
+@api_app.post(
+    "/events",
+    response_model=schema.EventRead,
+    dependencies=[Depends(get_api_key)],
+    summary="Create a new event (admin/owner only)",
+)
+def create_event(
+    payload: schema.EventCreate,
+    session: Session = Depends(get_session),
+):
+    # 1) Fetch the user who is attempting to create
+    user = session.get(db.User, payload.created_by)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+
+    # 2) Enforce role check
+    if user.role not in ("owner", "administrator"):
+        raise HTTPException(
+            status_code=403,
+            detail="Forbidden: only owners or administrators may create events",
+        )
+
+    # 3) Delegate to your business‐logic function
+    return events.create_event(payload, session)
+
+
+# Edit event (admin/owner only)
+@api_app.put(
+    "/events/{event_id}",
+    response_model=schema.EventRead,
+    dependencies=[Depends(get_api_key)],
+    summary="Edit an existing event (admin/owner only)",
+)
+def update_event(
+    event_id: int,
+    payload: schema.EventBase,
+    session: Session = Depends(get_session),
+):
+    return events.update_event(event_id, payload, session)
+
+
+# Delete event (admin/owner only)
+@api_app.delete(
+    "/events/{event_id}",
+    dependencies=[Depends(get_api_key)],
+    summary="Delete an event (admin/owner only)",
+)
+def delete_event(event_id: int, session: Session = Depends(get_session)):
+    return events.delete_event(event_id, session)
+
+
+# List events (all users)
+@api_app.get(
+    "/events",
+    response_model=list[schema.EventRead],
+    summary="List events, filter by day/week/month, optional start date",
+)
+def list_events(
+    period: Optional[str] = Query(
+        None,
+        regex="^(day|week|month)$",
+        description="If provided, window to next 24h/7d/30d",
+    ),
+    start: Optional[date] = Query(
+        None, description="Start from this date (YYYY-MM-DD). Defaults to today."
+    ),
+    session: Session = Depends(get_session),
+):
+    return events.list_events(period, start, session)
+
+
+# Sign up for an event (all users)
+@api_app.post(
+    "/events/{event_id}/sign",
+    response_model=schema.SignUpRead,
+    summary="Sign a user up for an event",
+)
+def sign_up_event(
+    event_id: int,
+    payload: schema.SignUpCreate,
+    session: Session = Depends(get_session),
+):
+    return events.sign_up_event(event_id, payload, session)
 
 
 app = FastAPI(
