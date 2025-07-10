@@ -1,5 +1,6 @@
 from datetime import datetime
-from typing import Optional
+from enum import Enum
+from typing import List, Optional
 
 from pydantic import BaseModel
 
@@ -27,17 +28,32 @@ class EventCreate(EventBase):
     created_by: int  # the user ID of the admin/owner making the event
 
 
-class EventRead(EventBase):
-    id: int
-    created_by: int
+class SignUpStatus(str, Enum):
+    Assist = "Assist"
+    Late = "Late"
+    Tentative = "Tentative"
+    Absence = "Absence"
 
 
 class SignUpCreate(BaseModel):
     user_id: int
+    status: Optional[SignUpStatus] = SignUpStatus.Assist
 
 
 class SignUpRead(BaseModel):
     id: int
     event_id: int
     user_id: int
+    username: str
     signed_at: datetime
+    status: SignUpStatus
+
+
+class EventRead(BaseModel):
+    id: int
+    title: str
+    description: Optional[str]
+    start_time: datetime
+    end_time: datetime
+    created_by: int
+    signups: List[SignUpRead] = []

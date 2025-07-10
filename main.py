@@ -1,7 +1,7 @@
 import base64
 from contextlib import asynccontextmanager
 from datetime import date, datetime
-from typing import Optional, cast
+from typing import List, Optional, cast
 
 from fastapi import Depends, FastAPI, HTTPException, Query
 from sqlmodel import Session, select, text
@@ -265,6 +265,18 @@ def populate_database(session: Session = Depends(get_session)):
 )
 def read_event(event_id: int, session: Session = Depends(get_session)):
     return events.get_event(event_id, session)
+
+
+@api_app.get(
+    "/event/statuses",
+    response_model=List[str],
+    summary="List all valid signup statuses",
+)
+def get_event_statuses() -> List[str]:
+    """
+    Returns the four allowed signup statuses as a JSON array of strings.
+    """
+    return [status.value for status in schema.SignUpStatus]
 
 
 # Create event (admin/owner only)

@@ -1,8 +1,10 @@
 import os
 from datetime import datetime
+from enum import Enum
 from typing import Optional
 
 import dotenv
+from sqlalchemy import Column, String
 from sqlmodel import Field, SQLModel, create_engine
 
 dotenv.load_dotenv()
@@ -56,11 +58,22 @@ class Event(SQLModel, table=True):
     created_by: int = Field(foreign_key="user.id")
 
 
+class SignUpStatus(str, Enum):
+    Assist = "Assist"
+    Late = "Late"
+    Tentative = "Tentative"
+    Absence = "Absence"
+
+
 class EventSignUp(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     event_id: int = Field(foreign_key="event.id")
     user_id: int = Field(foreign_key="user.id")
     signed_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
+    status: SignUpStatus = Field(
+        default=SignUpStatus.Assist,  # default at Python level
+        sa_column=Column(String, server_default=SignUpStatus.Assist.value),
+    )
 
 
 def reset_db():
