@@ -1,0 +1,36 @@
+__pycache__
+*.pyc
+*.pyo
+*.pyd
+.Python
+.venv
+pip-log.txt
+pip-delete-this-directory.txt
+.tox
+.coverage
+.coverage.*
+.cache
+nosetests.xml
+coverage.xml
+*.cover
+*.log
+.git
+.mypy_cache
+.pytest_cache
+.hypothesis
+
+# Environment variable files (don’t bake secrets into the image)
+.env
+.env.*      
+
+# Local editor/IDE settings
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp        # vim swapfiles
+*~           # temp files ending in ~
+
+# OS cruft
+.DS_Store
+Thumbs.db
