@@ -44,13 +44,15 @@ def get_event(event_id: int, session: Session) -> schema.EventRead:
     )
 
 
-def create_event(payload: schema.EventCreate, session: Session) -> db.Event:
+def create_event(
+    payload: schema.EventCreate, session: Session, *, created_by: int
+) -> db.Event:
     ev = db.Event(
         title=payload.title,
         description=payload.description,
         start_time=payload.start_time,
         end_time=payload.end_time,
-        created_by=payload.created_by,
+        created_by=created_by,
     )
     session.add(ev)
     session.commit()
@@ -146,15 +148,29 @@ def list_events(
 
 
 def sign_up_event(
-    event_id: int, payload: schema.SignUpCreate, session: Session
+    event_id: int,
+    payload: schema.SignUpCreate,
+    session: Session,
+    *,
+    actor: db.User,
 ) -> db.EventSignUp:
     # ensure event exists
     ev = session.get(db.Event, event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
 
+    # determine the user being signed up
+    if actor.id is None:
+        raise HTTPException(400, "Authenticated user is missing an identifier")
+
+    target_user_id = payload.user_id
+    actor_id = cast(int, actor.id)
+
+    if target_user_id != actor_id and actor.role not in ("owner", "administrator"):
+        raise HTTPException(403, "Forbidden: cannot sign up other users")
+
     # ensure user exists
-    user = session.get(db.User, payload.user_id)
+    user = session.get(db.User, target_user_id)
     if not user:
         raise HTTPException(404, "User not found")
 
@@ -162,7 +178,7 @@ def sign_up_event(
     existing = session.exec(
         select(db.EventSignUp)
         .where(db.EventSignUp.event_id == event_id)
-        .where(db.EventSignUp.user_id == payload.user_id)
+        .where(db.EventSignUp.user_id == target_user_id)
     ).first()
     if existing:
         raise HTTPException(400, "Already signed up")
@@ -174,7 +190,7 @@ def sign_up_event(
     db_status = db.SignUpStatus(status_enum.value)
     signup = db.EventSignUp(
         event_id=event_id,
-        user_id=payload.user_id,
+        user_id=target_user_id,
         status=db_status,
     )
     session.add(signup)

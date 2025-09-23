@@ -2,7 +2,7 @@ from datetime import datetime
 from enum import Enum
 from typing import List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class UserCreate(BaseModel):
@@ -25,7 +25,7 @@ class EventBase(BaseModel):
 
 
 class EventCreate(EventBase):
-    created_by: int  # the user ID of the admin/owner making the event
+    pass
 
 
 class SignUpStatus(str, Enum):
@@ -56,4 +56,9 @@ class EventRead(BaseModel):
     start_time: datetime
     end_time: datetime
     created_by: int
-    signups: List[SignUpRead] = []
+    signups: List[SignUpRead] = Field(default_factory=list)
+
+
+class Token(BaseModel):
+    access_token: str
+    token_type: str

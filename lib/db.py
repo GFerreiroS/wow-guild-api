@@ -1,24 +1,50 @@
 import os
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Generator, Optional
 
 import dotenv
-from sqlalchemy import Column, String
-from sqlmodel import Field, SQLModel, create_engine
+from sqlalchemy import Column, String, inspect
+from sqlmodel import Field, Session, SQLModel, create_engine
 
 dotenv.load_dotenv()
 
-# This will expand using your shell’s env vars (set by you or by a tool like python-dotenv)
-DATABASE_URL = (
-    f"postgresql://{os.getenv('POSTGRES_USER')}:"
-    f"{os.getenv('POSTGRES_PASSWORD')}@"
-    f"{os.getenv('POSTGRES_HOST')}:"
-    f"{os.getenv('POSTGRES_PORT')}/"
-    f"{os.getenv('POSTGRES_DB')}"
-)
 
-engine = create_engine(DATABASE_URL, echo=True)
+def _build_database_url() -> str:
+    """Return the database URL from the environment.
+
+    In development and tests the Postgres variables might not be defined.
+    When that happens fall back to a local SQLite database so that Alembic
+    and unit tests continue to work without extra configuration.
+    """
+
+    explicit_url = os.getenv("DATABASE_URL")
+    if explicit_url:
+        return explicit_url
+
+    user = os.getenv("POSTGRES_USER")
+    password = os.getenv("POSTGRES_PASSWORD")
+    host = os.getenv("POSTGRES_HOST")
+    port = os.getenv("POSTGRES_PORT")
+    database = os.getenv("POSTGRES_DB")
+
+    if all([user, password, host, port, database]):
+        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+
+    # Fallback for local development/testing
+    return "sqlite:///./wowguild.db"
+
+
+DATABASE_URL = _build_database_url()
+
+
+def _engine_kwargs() -> dict:
+    if DATABASE_URL.startswith("sqlite"):
+        return {"connect_args": {"check_same_thread": False}}
+    return {}
+
+
+engine = create_engine(DATABASE_URL, echo=False, **_engine_kwargs())
 
 
 class GuildMember(SQLModel, table=True):
@@ -86,3 +112,17 @@ def reset_db():
 
 def dispose_db():
     engine.dispose()
+
+
+def get_session() -> Generator[Session, None, None]:
+    """Yield a database session for FastAPI dependencies."""
+
+    with Session(engine) as session:
+        yield session
+
+
+def table_exists(table_name: str) -> bool:
+    """Utility used by migrations/tests to check for tables."""
+
+    inspector = inspect(engine)
+    return table_name in inspector.get_table_names()

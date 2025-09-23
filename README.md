@@ -15,9 +15,9 @@ A **FastAPI** service that wraps Blizzard’s OAuth2 + World of Warcraft APIs to
 - **OAuth2 Client Credentials** for Blizzard API  
 - **SQLModel + Alembic** migrations on PostgreSQL  
 - **Docker & Docker Compose** for quick local setup  
-- **Rate-limited**, **thread-pooled** background scripts for static data  
-- **API key**-protected admin endpoints  
-- **Password rules**: min 8 chars, upper+lower, digit, special char  
+- **Rate-limited**, **thread-pooled** background scripts for static data
+- **JWT-protected** endpoints with bcrypt hashed passwords
+- **Password rules**: min 8 chars, upper+lower, digit, special char
 
 ---
 
@@ -49,8 +49,9 @@ A **FastAPI** service that wraps Blizzard’s OAuth2 + World of Warcraft APIs to
    POSTGRES_HOST=localhost
    POSTGRES_PORT=5432
 
-   # Admin API key
-   ADMIN_API_KEY=test
+   # JWT configuration
+   JWT_SECRET_KEY=super-secret-key
+   # JWT_EXPIRE_MINUTES=60
    ```
 
 3. **Bring up** with Docker Compose
@@ -68,28 +69,61 @@ A **FastAPI** service that wraps Blizzard’s OAuth2 + World of Warcraft APIs to
    alembic upgrade head
    ```
 
-5. **Populate roster & dev user**:
+5. **Bootstrap data & users**
+
+   *Update the roster (allowed without auth until the first user exists):*
 
    ```bash
-   curl -X POST http://localhost:8000/api/admin/db/populate \
-        -H "X-API-Key: test"
+   curl -X POST http://localhost:8000/api/guild/roster/update
+   ```
+
+   *Create the first user (role derived from the linked character's guild rank):*
+
+   ```bash
+   curl -X POST http://localhost:8000/api/users \
+        -H "Content-Type: application/json" \
+        -d '{"username":"paella","password":"Paella1.","character_id":123456}'
+   ```
+
+   *Obtain a JWT access token:*
+
+   ```bash
+   curl -X POST http://localhost:8000/api/auth/token \
+        -H "Content-Type: application/x-www-form-urlencoded" \
+        -d 'username=paella&password=Paella1.'
+   ```
+
+   Use the token for subsequent requests:
+
+   ```bash
+   curl http://localhost:8000/api/guild/roster \
+        -H "Authorization: Bearer <access_token>"
    ```
 
 ---
 
 ## Endpoints
 
-| Path                               | Method | Auth    | Description                                         |
-| ---------------------------------- | ------ | ------- | --------------------------------------------------- |
-| `/api/token`                       | GET    | none    | Get current WoW token price (in gold)               |
-| `/api/guild`                       | GET    | none    | Fetch basic guild info from Blizzard                |
-| `/api/guild/roster`                | GET    | none    | Read cached roster from Postgres                    |
-| `/api/guild/roster/update`         | POST   | API key | Fetch roster from Blizzard & upsert into Postgres   |
-| `/api/guild/roster/{character_id}` | GET    | none    | Fetch a single character by ID                      |
-| `/api/users`                       | POST   | none    | Create user linked to a guild character             |
-| `/api/users`                       | GET    | API key | List all users                                      |
-| `/api/admin/db/reset`              | POST   | API key | Drop & recreate all tables (dev only)               |
-| `/api/admin/db/populate`           | POST   | API key | Refresh roster, token & guild info; create dev user |
+| Path                               | Method | Auth                    | Description                                                 |
+| ---------------------------------- | ------ | ----------------------- | ----------------------------------------------------------- |
+| `/api/token`                       | GET    | JWT (all users)         | Get current WoW token price (in gold)                       |
+| `/api/guild`                       | GET    | JWT (all users)         | Fetch basic guild info from Blizzard                        |
+| `/api/guild/roster`                | GET    | JWT (all users)         | Read cached roster from Postgres                            |
+| `/api/guild/roster/update`         | POST   | JWT (owner / admin)     | Fetch roster from Blizzard & upsert into Postgres           |
+| `/api/guild/roster/{character_id}` | GET    | JWT (all users)         | Fetch a single character by ID                              |
+| `/api/users`                       | POST   | JWT (owner / admin)*    | Create user linked to a guild character (*open until first user) |
+| `/api/users`                       | GET    | JWT (owner / admin)     | List all users                                              |
+| `/api/auth/token`                  | POST   | Basic (form login)      | Obtain a JWT access token                                   |
+| `/api/auth/me`                     | GET    | JWT (all users)         | Inspect the currently authenticated user                    |
+| `/api/admin/db/reset`              | POST   | JWT (owner)             | Drop & recreate all tables (dev only)                       |
+| `/api/admin/db/populate`           | POST   | JWT (owner)             | Refresh roster, token & guild info; create dev seed user    |
+| `/api/events`                      | GET    | JWT (all users)         | List events with optional filters                           |
+| `/api/events/{event_id}`           | GET    | JWT (all users)         | Fetch a single event with its sign-ups                      |
+| `/api/events`                      | POST   | JWT (owner / admin)     | Create a new event                                          |
+| `/api/events/{event_id}`           | PUT    | JWT (owner / admin)     | Update an existing event                                    |
+| `/api/events/{event_id}`           | DELETE | JWT (owner / admin)     | Delete an event                                             |
+| `/api/events/{event_id}/sign`      | POST   | JWT (all users)         | Sign the authenticated (or delegated) user up for an event  |
+| `/api/event/statuses`              | GET    | JWT (all users)         | List allowed sign-up statuses                               |
 
 See the **Swagger UI** at `http://localhost:8000/docs`.
 
@@ -122,5 +156,5 @@ See the **Swagger UI** at `http://localhost:8000/docs`.
 
   ```bash
   curl -X POST http://localhost:8000/api/admin/db/reset \
-       -H "X-API-Key: <your admin key>"
+       -H "Authorization: Bearer <owner access token>"
   ```
