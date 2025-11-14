@@ -8,3 +8,5 @@ scripts/data/
 
 data/instances/
 log/
+
+ruff.toml

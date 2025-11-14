@@ -11,8 +11,8 @@ import lib.db as db
 import lib.events as events
 import lib.guild as guild
 import lib.schemas as schema
-import lib.wow as wow
 import lib.security as security
+import lib.wow as wow
 
 
 @asynccontextmanager
