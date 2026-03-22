@@ -1,6 +1,8 @@
-FROM python:3.14-alpine
+FROM python:3.13-slim
 
-RUN apk add --no-cache gcc musl-dev libffi-dev postgresql-dev git
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc libffi-dev libpq-dev git \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
 
