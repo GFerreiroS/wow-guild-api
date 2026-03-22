@@ -1,4 +1,5 @@
-from datetime import date, datetime, time, timedelta
+import logging
+from datetime import date, datetime, time, timedelta, timezone
 from typing import List, Optional, cast
 
 from fastapi import HTTPException
@@ -7,32 +8,43 @@ from sqlmodel import Session, select
 import lib.db as db
 import lib.schemas as schema
 
+logger = logging.getLogger(__name__)
+
+
+def _make_signup_read(signup: db.EventSignUp, users: dict[int, db.User]) -> schema.SignUpRead:
+    username = users[signup.user_id].username if signup.user_id in users else "unknown"
+    # signup.status may be a plain str (SQLite returns raw column value) or a SignUpStatus enum
+    status_val = signup.status if isinstance(signup.status, str) else signup.status.value
+    return schema.SignUpRead(
+        id=cast(int, signup.id),
+        event_id=signup.event_id,
+        user_id=signup.user_id,
+        username=username,
+        signed_at=signup.signed_at,
+        status=schema.SignUpStatus(status_val),
+    )
+
+
+def _load_signups_for_event(event_id: int, session: Session) -> list[schema.SignUpRead]:
+    rows = session.exec(
+        select(db.EventSignUp).where(db.EventSignUp.event_id == event_id)
+    ).all()
+    user_ids = {su.user_id for su in rows}
+    users: dict[int, db.User] = {}
+    if user_ids:
+        users = {
+            u.id: u  # type: ignore[index]
+            for u in session.exec(select(db.User).where(db.User.id.in_(user_ids))).all()
+        }
+    return [_make_signup_read(su, users) for su in rows]
+
 
 def get_event(event_id: int, session: Session) -> schema.EventRead:
     ev = session.get(db.Event, event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
 
-    rows = session.exec(
-        select(db.EventSignUp).where(db.EventSignUp.event_id == event_id)
-    ).all()
-
-    signups: list[schema.SignUpRead] = []
-    for su in rows:
-        user = session.get(db.User, su.user_id)
-        username = user.username if user else "unknown"
-        status = schema.SignUpStatus(su.status.value)  # use the .value string
-        signups.append(
-            schema.SignUpRead(
-                id=cast(int, su.id),
-                event_id=su.event_id,
-                user_id=su.user_id,
-                username=username,
-                signed_at=su.signed_at,
-                status=status,
-            )
-        )
-
+    signups = _load_signups_for_event(event_id, session)
     return schema.EventRead(
         id=cast(int, ev.id),
         title=ev.title,
@@ -46,7 +58,7 @@ def get_event(event_id: int, session: Session) -> schema.EventRead:
 
 def create_event(
     payload: schema.EventCreate, session: Session, *, created_by: int
-) -> db.Event:
+) -> schema.EventRead:
     ev = db.Event(
         title=payload.title,
         description=payload.description,
@@ -57,12 +69,12 @@ def create_event(
     session.add(ev)
     session.commit()
     session.refresh(ev)
-    return ev
+    return get_event(cast(int, ev.id), session)
 
 
 def update_event(
     event_id: int, payload: schema.EventBase, session: Session
-) -> db.Event:
+) -> schema.EventRead:
     ev = session.get(db.Event, event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
@@ -72,8 +84,7 @@ def update_event(
     ev.end_time = payload.end_time
     session.add(ev)
     session.commit()
-    session.refresh(ev)
-    return ev
+    return get_event(event_id, session)
 
 
 def delete_event(event_id: int, session: Session) -> dict:
@@ -86,18 +97,16 @@ def delete_event(event_id: int, session: Session) -> dict:
 
 
 def list_events(
-    period: Optional[str], start: Optional[date], session: Session
+    period: Optional[str],
+    start: Optional[date],
+    skip: int,
+    limit: int,
+    session: Session,
 ) -> List[schema.EventRead]:
-    # determine lower bound
-    if start:
-        lower = datetime.combine(start, time.min)
-    else:
-        lower = datetime.now()
+    lower = datetime.combine(start, time.min) if start else datetime.now(timezone.utc)
 
-    # base query: events starting at or after lower
     q = select(db.Event).where(db.Event.start_time >= lower)
 
-    # apply window if requested
     if period == "day":
         upper = lower + timedelta(days=1)
     elif period == "week":
@@ -110,29 +119,36 @@ def list_events(
     if upper:
         q = q.where(db.Event.start_time < upper)
 
+    q = q.offset(skip).limit(limit)
     ev_rows = session.exec(q).all()
+
+    if not ev_rows:
+        return []
+
+    # Batch-load signups and users to avoid N+1 queries
+    ev_ids = [ev.id for ev in ev_rows]
+    all_signups = session.exec(
+        select(db.EventSignUp).where(db.EventSignUp.event_id.in_(ev_ids))
+    ).all()
+
+    user_ids = {su.user_id for su in all_signups}
+    users: dict[int, db.User] = {}
+    if user_ids:
+        users = {
+            u.id: u  # type: ignore[index]
+            for u in session.exec(select(db.User).where(db.User.id.in_(user_ids))).all()
+        }
+
+    signups_by_event: dict[int, list[db.EventSignUp]] = {}
+    for su in all_signups:
+        signups_by_event.setdefault(su.event_id, []).append(su)
+
     out: list[schema.EventRead] = []
     for ev in ev_rows:
-        rows = session.exec(
-            select(db.EventSignUp).where(db.EventSignUp.event_id == ev.id)
-        ).all()
-        signups: list[schema.SignUpRead] = []
-        for su in rows:
-            user = session.get(db.User, su.user_id)
-            username = user.username if user else "unknown"
-            status = schema.SignUpStatus(su.status.value)
-
-            signups.append(
-                schema.SignUpRead(
-                    id=cast(int, su.id),
-                    event_id=su.event_id,
-                    user_id=su.user_id,
-                    username=username,
-                    signed_at=su.signed_at,
-                    status=status,
-                )
-            )
-
+        ev_signups = [
+            _make_signup_read(su, users)
+            for su in signups_by_event.get(cast(int, ev.id), [])
+        ]
         out.append(
             schema.EventRead(
                 id=cast(int, ev.id),
@@ -141,7 +157,7 @@ def list_events(
                 start_time=ev.start_time,
                 end_time=ev.end_time,
                 created_by=ev.created_by,
-                signups=signups,
+                signups=ev_signups,
             )
         )
     return out
@@ -153,13 +169,11 @@ def sign_up_event(
     session: Session,
     *,
     actor: db.User,
-) -> db.EventSignUp:
-    # ensure event exists
+) -> schema.SignUpRead:
     ev = session.get(db.Event, event_id)
     if not ev:
         raise HTTPException(404, "Event not found")
 
-    # determine the user being signed up
     if actor.id is None:
         raise HTTPException(400, "Authenticated user is missing an identifier")
 
@@ -169,12 +183,10 @@ def sign_up_event(
     if target_user_id != actor_id and actor.role not in ("owner", "administrator"):
         raise HTTPException(403, "Forbidden: cannot sign up other users")
 
-    # ensure user exists
     user = session.get(db.User, target_user_id)
     if not user:
         raise HTTPException(404, "User not found")
 
-    # no double‐signups
     existing = session.exec(
         select(db.EventSignUp)
         .where(db.EventSignUp.event_id == event_id)
@@ -183,17 +195,75 @@ def sign_up_event(
     if existing:
         raise HTTPException(400, "Already signed up")
 
-    status_enum: schema.SignUpStatus = (
-        payload.status if payload.status is not None else schema.SignUpStatus.Assist
-    )
-
-    db_status = db.SignUpStatus(status_enum.value)
+    status_val = payload.status if payload.status is not None else schema.SignUpStatus.Assist
     signup = db.EventSignUp(
         event_id=event_id,
         user_id=target_user_id,
-        status=db_status,
+        status=db.SignUpStatus(status_val.value),
     )
     session.add(signup)
     session.commit()
     session.refresh(signup)
-    return signup
+    return _make_signup_read(signup, {target_user_id: user})
+
+
+def update_signup(
+    event_id: int,
+    payload: schema.SignUpUpdate,
+    session: Session,
+    *,
+    actor: db.User,
+) -> schema.SignUpRead:
+    ev = session.get(db.Event, event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+
+    actor_id = cast(int, actor.id)
+    target_user_id = payload.user_id
+
+    if target_user_id != actor_id and actor.role not in ("owner", "administrator"):
+        raise HTTPException(403, "Forbidden: cannot update other users' signups")
+
+    existing = session.exec(
+        select(db.EventSignUp)
+        .where(db.EventSignUp.event_id == event_id)
+        .where(db.EventSignUp.user_id == target_user_id)
+    ).first()
+    if not existing:
+        raise HTTPException(404, "Signup not found")
+
+    existing.status = db.SignUpStatus(payload.status.value)
+    session.add(existing)
+    session.commit()
+    session.refresh(existing)
+
+    user = session.get(db.User, target_user_id)
+    return _make_signup_read(existing, {target_user_id: user} if user else {})
+
+
+def delete_signup(
+    event_id: int,
+    user_id: int,
+    session: Session,
+    *,
+    actor: db.User,
+) -> dict:
+    ev = session.get(db.Event, event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+
+    actor_id = cast(int, actor.id)
+    if user_id != actor_id and actor.role not in ("owner", "administrator"):
+        raise HTTPException(403, "Forbidden: cannot delete other users' signups")
+
+    existing = session.exec(
+        select(db.EventSignUp)
+        .where(db.EventSignUp.event_id == event_id)
+        .where(db.EventSignUp.user_id == user_id)
+    ).first()
+    if not existing:
+        raise HTTPException(404, "Signup not found")
+
+    session.delete(existing)
+    session.commit()
+    return {"status": "deleted", "event_id": event_id, "user_id": user_id}

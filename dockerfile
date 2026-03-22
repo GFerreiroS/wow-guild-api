@@ -1,6 +1,6 @@
-FROM python:3.13.5-alpine3.22
+FROM python:3.14-alpine
 
-RUN apk add --no-cache gcc musl-dev libffi-dev postgresql-dev
+RUN apk add --no-cache gcc musl-dev libffi-dev postgresql-dev git
 
 WORKDIR /app
 
@@ -13,4 +13,4 @@ COPY . .
 
 EXPOSE 8000
 
-CMD ["uvicorn", "main:app", "--reload", "--reload-include", "'.env'", "--host", "0.0.0.0"]
+CMD ["uvicorn", "main:app", "--reload", "--reload-include", ".env", "--host", "0.0.0.0"]

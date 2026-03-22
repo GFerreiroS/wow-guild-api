@@ -20,6 +20,7 @@ services:
       start_period: 30s
   fastapi:
     build: .
+    restart: always
     depends_on:
       postgres:
         condition: service_healthy
@@ -27,9 +28,11 @@ services:
       - "8000:8000"
     volumes:
       - ./:/app
-      - .env:/app/.env
+    env_file:
+      - .env
     environment:
-      ENVIRONMENT: development
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
 
 volumes:
   pgdata:

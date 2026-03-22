@@ -2,55 +2,62 @@
 
 from __future__ import annotations
 
+import logging
 import os
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Iterable, Optional
 
+import bcrypt as _bcrypt
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError, jwt
-from passlib.context import CryptContext
 from sqlmodel import Session, select
 
 from . import db
 
-# OAuth2 configuration ------------------------------------------------------
+logger = logging.getLogger(__name__)
 
+# OAuth2 configuration
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token")
-optional_oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/auth/token", auto_error=False
-)
+optional_oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/token", auto_error=False)
 
-# Password hashing ---------------------------------------------------------
-
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
+# Password hashing
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(plain_password, hashed_password)
+    return _bcrypt.checkpw(plain_password.encode(), hashed_password.encode())
 
 
 def get_password_hash(password: str) -> str:
-    return pwd_context.hash(password)
+    return _bcrypt.hashpw(password.encode(), _bcrypt.gensalt()).decode()
 
 
-# JWT helpers ---------------------------------------------------------------
-
+# JWT helpers
 SECRET_KEY = os.getenv("JWT_SECRET_KEY", "change-me")
 ALGORITHM = os.getenv("JWT_ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("JWT_EXPIRE_MINUTES", "60"))
 
+_INSECURE_DEFAULTS = {"change-me", "super-secret-key", ""}
+
+
+def check_config() -> None:
+    """Raise RuntimeError if the JWT secret is missing or insecure."""
+    if not SECRET_KEY or SECRET_KEY in _INSECURE_DEFAULTS or len(SECRET_KEY) < 32:
+        raise RuntimeError(
+            "JWT_SECRET_KEY is not set or uses an insecure default. "
+            "Set a strong random secret (min 32 chars) in your .env file."
+        )
+    logger.info("Security config validated.")
+
 
 def create_access_token(*, subject: str, expires_delta: Optional[timedelta] = None) -> str:
-    expire = datetime.utcnow() + (
+    expire = datetime.now(timezone.utc) + (
         expires_delta if expires_delta else timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
     to_encode = {"sub": subject, "exp": expire}
     return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 
-# User retrieval ------------------------------------------------------------
-
+# User retrieval
 
 def authenticate_user(username: str, password: str, session: Session) -> Optional[db.User]:
     user = session.exec(select(db.User).where(db.User.username == username)).first()
@@ -76,7 +83,7 @@ def get_current_user(
         username: Optional[str] = payload.get("sub")
         if username is None:
             raise CREDENTIALS_EXCEPTION
-    except JWTError as exc:  # pragma: no cover - explicit for clarity
+    except JWTError as exc:
         raise CREDENTIALS_EXCEPTION from exc
 
     user = session.exec(select(db.User).where(db.User.username == username)).first()
@@ -138,7 +145,6 @@ def ensure_authenticated_or_bootstrap(
     required_roles: Optional[Iterable[str]] = None,
 ) -> Optional[db.User]:
     """Require authentication only after at least one user exists."""
-
     if not users_exist(session):
         return current_user
 

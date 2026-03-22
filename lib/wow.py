@@ -1,4 +1,6 @@
+import logging
 import os
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import dotenv
 import requests
@@ -6,6 +8,8 @@ import requests
 from .auth import get_access_token
 
 dotenv.load_dotenv()
+
+logger = logging.getLogger(__name__)
 
 WOW_API_URL_BASE = f"https://{os.getenv('REGION')}.api.blizzard.com/data/wow"
 
@@ -31,40 +35,30 @@ def get_classes_index() -> list[dict]:
     }
     headers = {"Authorization": f"Bearer {bearer}"}
 
-    # 1) Fetch the index of classes
     resp = requests.get(
-        f"{WOW_API_URL_BASE}/playable-class/index", params={**params}, headers=headers
+        f"{WOW_API_URL_BASE}/playable-class/index", params=params, headers=headers
     )
     resp.raise_for_status()
-    data = resp.json()
+    class_list = resp.json().get("classes", [])
 
-    classes = []
-    # 2) Loop through each entry in the index
-    for cls in data.get("classes", []):
+    def fetch_class_media(cls: dict) -> dict:
         cls_id = cls["id"]
-        cls_name = cls["name"]
-
-        # 3) Fetch the media (to get the icon)
         media_resp = requests.get(
             f"{WOW_API_URL_BASE}/media/playable-class/{cls_id}",
-            params={**params},
+            params=params,
             headers=headers,
         )
         media_resp.raise_for_status()
         media = media_resp.json()
+        icon = next(
+            (a["value"] for a in media.get("assets", []) if a.get("key", "").endswith("icon")),
+            None,
+        )
+        return {"id": cls_id, "name": cls["name"], "icon": icon}
 
-        # 4) Find the icon asset
-        #    Blizzard returns a list under "assets"; often the first is the icon
-        icon = None
-        for asset in media.get("assets", []):
-            # usually asset["key"] ends with "icon"
-            if asset.get("key", "").endswith("icon"):
-                icon = asset.get("value")
-                break
-
-        classes.append({"id": cls_id, "name": cls_name, "icon": icon})
-
-    return classes
+    with ThreadPoolExecutor(max_workers=10) as executor:
+        futures = [executor.submit(fetch_class_media, cls) for cls in class_list]
+        return [f.result() for f in as_completed(futures)]
 
 
 def get_races_index() -> list[dict]:
@@ -78,9 +72,4 @@ def get_races_index() -> list[dict]:
     )
     resp.raise_for_status()
     data = resp.json()
-
-    races = []
-    for item in data.get("races", []):
-        races.append({"id": item["id"], "name": item["name"]})
-
-    return races
+    return [{"id": item["id"], "name": item["name"]} for item in data.get("races", [])]
