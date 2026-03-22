@@ -102,6 +102,34 @@ class EventSignUp(SQLModel, table=True):
     )
 
 
+class Expansion(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    name: str = Field(unique=True)
+
+
+class Instance(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    blizzard_id: int = Field(unique=True)
+    expansion_id: int = Field(foreign_key="expansion.id")
+    name: str
+    description: Optional[str] = None
+    img: Optional[str] = None
+    instance_type: str  # "raid" or "dungeon"
+    is_current_season: bool = Field(default=False)
+    sort_order: int = Field(default=0)
+
+
+class Encounter(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    blizzard_id: int
+    instance_id: int = Field(foreign_key="instance.id")
+    name: str
+    description: Optional[str] = None
+    creature_display_id: Optional[int] = None
+    img: Optional[str] = None
+    sort_order: int = Field(default=0)
+
+
 def reset_db():
     """
     Drops all tables and recreates them from the current models.

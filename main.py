@@ -18,10 +18,12 @@ from sqlmodel import Session, select
 import lib.db as db
 import lib.events as events
 import lib.guild as guild
+import lib.instances as instances
 import lib.schemas as schema
 import lib.security as security
 import lib.updater as updater
 import lib.wow as wow
+from lib.admin import setup_admin
 from lib.cache import ttl_cache
 
 # ---------------------------------------------------------------------------
@@ -69,6 +71,11 @@ async def lifespan(app: FastAPI):
             )
     except Exception as e:
         logger.debug("Could not check for updates on startup: %s", e)
+    if os.getenv("INSTANCE_BACKEND", "yaml").lower() == "db":
+        with db.Session(db.engine) as session:
+            if instances.is_db_empty(session):
+                logger.info("Instance DB empty — auto-seeding from YAML.")
+                instances.seed_from_yaml(session)
     yield
     db.dispose_db()
     logger.info("Application shut down.")
@@ -356,6 +363,53 @@ def populate_database(session: Session = Depends(db.get_session)):
 
 
 # ---------------------------------------------------------------------------
+# Instance endpoints
+# ---------------------------------------------------------------------------
+@api_app.get(
+    "/instances",
+    response_model=list[schema.InstanceRead],
+    summary="List instances filtered by expansion, type, or current season",
+)
+def list_instances(
+    expansion: Optional[str] = Query(None, description="Expansion name, e.g. 'The War Within'"),
+    type: Optional[str] = Query(None, pattern="^(raid|dungeon)$"),
+    current_season: bool = Query(False),
+    session: Session = Depends(db.get_session),
+    current_user: Optional[db.User] = Depends(security.get_optional_user),
+):
+    security.ensure_authenticated_or_bootstrap(session, current_user)
+    return instances.get_instances(session, expansion, type, current_season)
+
+
+@api_app.get(
+    "/instances/{blizzard_id}",
+    response_model=schema.InstanceDetailRead,
+    summary="Get a single instance with its encounters",
+)
+def get_instance(
+    blizzard_id: int,
+    session: Session = Depends(db.get_session),
+    current_user: Optional[db.User] = Depends(security.get_optional_user),
+):
+    security.ensure_authenticated_or_bootstrap(session, current_user)
+    inst = instances.get_instance(session, blizzard_id)
+    if not inst:
+        raise HTTPException(404, "Instance not found")
+    return inst
+
+
+@api_app.post(
+    "/admin/instances/seed",
+    dependencies=[Depends(security.require_roles("owner"))],
+    summary="Seed instance DB from YAML files (requires INSTANCE_BACKEND=db)",
+)
+def seed_instances(session: Session = Depends(db.get_session)):
+    if os.getenv("INSTANCE_BACKEND", "yaml").lower() != "db":
+        raise HTTPException(400, "INSTANCE_BACKEND is not set to 'db'")
+    return instances.seed_from_yaml(session)
+
+
+# ---------------------------------------------------------------------------
 # Update endpoints
 # ---------------------------------------------------------------------------
 @api_app.get(
@@ -538,3 +592,4 @@ app.add_middleware(
 )
 
 app.mount("/api", api_app)
+setup_admin(app)

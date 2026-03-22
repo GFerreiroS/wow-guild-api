@@ -72,6 +72,12 @@ def apply_update(game_mode: str) -> dict:
         else:
             logger.info("Instances regenerated successfully.")
 
+    if game_mode.lower() == "retail" and os.getenv("INSTANCE_BACKEND", "yaml").lower() == "db":
+        logger.info(
+            "Retail update with DB backend: call POST /api/admin/instances/seed "
+            "after restart to load the new instance data."
+        )
+
     logger.info("Update applied to %s. Restarting in 1 second...", new_version)
     threading.Timer(1.0, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
 

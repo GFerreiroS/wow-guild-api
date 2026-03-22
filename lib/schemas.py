@@ -72,6 +72,29 @@ class Token(BaseModel):
     token_type: str
 
 
+class EncounterRead(BaseModel):
+    blizzard_id: int
+    name: str
+    description: Optional[str]
+    creature_display_id: Optional[int]
+    img: Optional[str]
+    sort_order: int
+
+
+class InstanceRead(BaseModel):
+    blizzard_id: int
+    expansion: str
+    name: str
+    description: Optional[str]
+    img: Optional[str]
+    instance_type: str
+    is_current_season: bool
+
+
+class InstanceDetailRead(InstanceRead):
+    encounters: List[EncounterRead] = Field(default_factory=list)
+
+
 class UpdateCheckResponse(BaseModel):
     current_version: str
     latest_version: str
