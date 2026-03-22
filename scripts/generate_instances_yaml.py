@@ -436,6 +436,23 @@ TARGET_ENCOUNTERS = [
     "The One-Armed Bandit",
     "Mug'Zee, Heads of Security",
     "Chrome King Gallywix",
+    "Plexus Sentinel",
+    "Loom'ithar",
+    "Soulbinder Naazindhri",
+    "Forgeweaver Araz",
+    "The Soul Hunters",
+    "Fractillus",
+    "Nexus-King Salhadaar",
+    "Dimensius",
+    "Chimaerus, the Undreamt God",
+    "Imperator Averzian",
+    "Vorasius",
+    "Fallen-King Salhadaar",
+    "Vaelgor & Ezzorak",
+    "Lightblinded Vanguard",
+    "Crown of the Cosmos",
+    "Belo'ren, Child of Al'ar",
+    "Midnight Falls",
 ]
 
 # ——————————————————————————————————————————————
