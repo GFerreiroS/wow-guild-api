@@ -3,6 +3,7 @@ import time
 
 import dotenv
 import requests
+from sqlalchemy.dialects.postgresql import insert
 from sqlmodel import Session, select
 
 import lib.db as db
@@ -35,12 +36,15 @@ def get_access_token() -> str:
         token = j["access_token"]
         expires = time.time() + j.get("expires_in", 3600) - 10
 
-        # 3) Upsert into DB
-        if result:
-            result.access_token = token
-            result.expires_at = expires
-            session.add(result)
-        else:
-            session.add(db.OAuthToken(id=1, access_token=token, expires_at=expires))
+        # 3) Upsert into DB (handles concurrent requests gracefully)
+        stmt = (
+            insert(db.OAuthToken)
+            .values(id=1, access_token=token, expires_at=expires)
+            .on_conflict_do_update(
+                index_elements=["id"],
+                set_={"access_token": token, "expires_at": expires},
+            )
+        )
+        session.execute(stmt)
         session.commit()
         return token
