@@ -31,13 +31,11 @@ def _load_yaml(path: Path) -> list:
 
 
 def _current_season_ids() -> set[int]:
-    ids: set[int] = set()
-    for fname in ("raids.yml", "dungeons.yml"):
-        for entry in _load_yaml(CURRENT_SEASON_DIR / fname):
-            bid = entry.get("blizzard-id")
-            if bid:
-                ids.add(bid)
-    return ids
+    return {
+        entry["blizzard-id"]
+        for entry in _load_yaml(CURRENT_SEASON_DIR / "raids.yml")
+        if entry.get("blizzard-id")
+    }
 
 
 def _parse_yaml_entry(entry: dict, exp_name: str, itype: str, current_ids: set[int]) -> dict:
@@ -85,8 +83,6 @@ def _iter_yaml(
         type_files = []
         if not instance_type or instance_type == "raid":
             type_files.append(("raid", exp_dir / "raids.yml"))
-        if not instance_type or instance_type == "dungeon":
-            type_files.append(("dungeon", exp_dir / "dungeons.yml"))
         for itype, path in type_files:
             for entry in _load_yaml(path):
                 parsed = _parse_yaml_entry(entry, exp_name, itype, current_ids)
@@ -211,15 +207,14 @@ def seed_from_yaml(session: Session) -> dict:
         session.commit()
         session.refresh(expansion)
 
-        for itype, fname in [("raid", "raids.yml"), ("dungeon", "dungeons.yml")]:
-            for sort_idx, entry in enumerate(_load_yaml(exp_dir / fname)):
+        for sort_idx, entry in enumerate(_load_yaml(exp_dir / "raids.yml")):
                 inst = Instance(
                     blizzard_id=entry.get("blizzard-id"),
                     expansion_id=expansion.id,
                     name=entry.get("name", ""),
                     description=entry.get("description"),
                     img=entry.get("img"),
-                    instance_type=itype,
+                    instance_type="raid",
                     is_current_season=entry.get("blizzard-id") in current_ids,
                     sort_order=sort_idx,
                 )
