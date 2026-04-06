@@ -72,9 +72,9 @@ def apply_update(game_mode: str) -> dict:
         else:
             logger.info("Instances regenerated successfully.")
 
-    if game_mode.lower() == "retail" and os.getenv("INSTANCE_BACKEND", "yaml").lower() == "db":
+    if game_mode.lower() == "retail":
         logger.info(
-            "Retail update with DB backend: call POST /api/admin/instances/seed "
+            "Retail update: call POST /api/admin/instances/seed "
             "after restart to load the new instance data."
         )
 
