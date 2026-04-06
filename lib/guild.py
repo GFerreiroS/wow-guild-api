@@ -35,8 +35,6 @@ def get_guild_info() -> dict:
 
 
 def get_guild_roster() -> dict:
-    lvl_cap = 80
-
     # Build lookup maps concurrently
     with ThreadPoolExecutor(max_workers=2) as ex:
         classes_fut = ex.submit(wow.get_classes_index)
@@ -60,10 +58,6 @@ def get_guild_roster() -> dict:
     roster = []
     for m in members:
         char = m.get("character", {})
-        lvl = char.get("level", 0)
-        if lvl < lvl_cap:
-            continue
-
         char_id = char.get("id")
         if char_id is None:
             logger.warning("Skipping character with no ID: %s", char.get("name"))
@@ -71,14 +65,13 @@ def get_guild_roster() -> dict:
 
         cls_id = char.get("playable_class", {}).get("id")
         race_id = char.get("playable_race", {}).get("id")
-        realm_slug = char.get("realm", {}).get("slug")
 
         roster.append(
             {
                 "id": char_id,
                 "name": char.get("name"),
-                "realm": realm_slug,
-                "level": lvl,
+                "realm": char.get("realm", {}).get("slug"),
+                "level": char.get("level", 0),
                 "class": classes.get(cls_id, "Unknown"),
                 "race": races.get(race_id, "Unknown"),
                 "faction": char.get("faction", {}).get("type"),
