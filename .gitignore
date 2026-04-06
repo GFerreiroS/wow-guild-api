@@ -1,5 +1,7 @@
 .venv/
 .env
+.claude/
+.pytest_cache
 __pycache__/
 
 scripts/data/
