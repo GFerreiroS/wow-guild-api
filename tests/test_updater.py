@@ -1,6 +1,5 @@
 """Tests for lib/updater.py and /admin/updates/* endpoints."""
 
-import os
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -288,20 +287,11 @@ def test_apply_endpoint_owner_allowed(client, session, mocker):
     assert data["restarting"] is True
 
 
-def test_apply_endpoint_passes_game_mode_retail(client, session, mocker):
+def test_apply_endpoint_calls_apply_update(client, session, mocker):
     make_user(session, rank=0, username="owner")
     mock_apply = mocker.patch("lib.updater.apply_update", return_value={"updated_to": "1.1.0", "restarting": True})
-    with patch.dict(os.environ, {"GAME_MODE": "retail"}):
-        client.post("/api/admin/updates/apply", headers=auth_headers(client, "owner"))
-    mock_apply.assert_called_once_with("retail")
-
-
-def test_apply_endpoint_passes_game_mode_private_server(client, session, mocker):
-    make_user(session, rank=0, username="owner")
-    mock_apply = mocker.patch("lib.updater.apply_update", return_value={"updated_to": "1.1.0", "restarting": True})
-    with patch.dict(os.environ, {"GAME_MODE": "wotlk"}):
-        client.post("/api/admin/updates/apply", headers=auth_headers(client, "owner"))
-    mock_apply.assert_called_once_with("wotlk")
+    client.post("/api/admin/updates/apply", headers=auth_headers(client, "owner"))
+    mock_apply.assert_called_once_with()
 
 
 def test_apply_endpoint_git_failure_returns_500(client, session, mocker):
@@ -309,12 +299,3 @@ def test_apply_endpoint_git_failure_returns_500(client, session, mocker):
     mocker.patch("lib.updater.apply_update", side_effect=RuntimeError("git pull failed: auth error"))
     resp = client.post("/api/admin/updates/apply", headers=auth_headers(client, "owner"))
     assert resp.status_code == 500
-
-
-def test_apply_endpoint_defaults_game_mode_to_retail(client, session, mocker):
-    make_user(session, rank=0, username="owner")
-    mock_apply = mocker.patch("lib.updater.apply_update", return_value={"updated_to": "1.1.0", "restarting": True})
-    env = {k: v for k, v in os.environ.items() if k != "GAME_MODE"}
-    with patch.dict(os.environ, env, clear=True):
-        client.post("/api/admin/updates/apply", headers=auth_headers(client, "owner"))
-    mock_apply.assert_called_once_with("retail")

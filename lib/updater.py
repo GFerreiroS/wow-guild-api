@@ -2,7 +2,6 @@ import logging
 import os
 import signal
 import subprocess
-import sys
 import threading
 from pathlib import Path
 
@@ -46,7 +45,7 @@ def check_for_updates() -> dict:
     }
 
 
-def apply_update(game_mode: str) -> dict:
+def apply_update() -> dict:
     repo_root = Path(__file__).parent.parent
 
     result = subprocess.run(
@@ -60,25 +59,10 @@ def apply_update(game_mode: str) -> dict:
 
     new_version = get_local_version()
 
-    if game_mode.lower() == "retail":
-        regen = subprocess.run(
-            [sys.executable, "scripts/generate_instances_yaml.py"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-        )
-        if regen.returncode != 0:
-            logger.warning("Instance regeneration failed: %s", regen.stderr)
-        else:
-            logger.info("Instances regenerated successfully.")
-
-    if game_mode.lower() == "retail":
-        logger.info(
-            "Retail update: call POST /api/admin/instances/seed "
-            "after restart to load the new instance data."
-        )
-
-    logger.info("Update applied to %s. Restarting in 1 second...", new_version)
+    logger.info(
+        "Update applied to %s. Call POST /api/admin/instances/seed to reload instance data.",
+        new_version,
+    )
     threading.Timer(1.0, lambda: os.kill(os.getpid(), signal.SIGTERM)).start()
 
     return {"updated_to": new_version, "restarting": True}

@@ -482,9 +482,8 @@ def check_updates():
     tags=["Admin"],
 )
 def apply_update():
-    game_mode = os.getenv("GAME_MODE", "retail")
     try:
-        return updater.apply_update(game_mode)
+        return updater.apply_update()
     except RuntimeError as e:
         raise HTTPException(500, str(e))
 
