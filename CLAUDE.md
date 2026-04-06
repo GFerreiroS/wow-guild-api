@@ -130,26 +130,34 @@ CURRENT_KEYSTONE_SEASON_ID = 17
 | `JWT_EXPIRE_MINUTES` | Optional, default 60 |
 | `GITHUB_REPO` | Override if forked (default: `GFerreiroS/wow-guild-api`) |
 
-## Bootstrap procedure (empty DB)
+## Bootstrap procedure
 
-1. `POST /api/admin/db/init` — creates tables (no auth required)
-2. `alembic stamp head` — tell Alembic the DB is current (run once after first deploy, from the repo root)
-3. `POST /api/admin/db/populate` — fetches guild + roster from Blizzard (no auth required when DB has no users)
-4. `POST /users` — create your owner user (no auth required when DB has no users)
-5. Authenticate via `POST /auth/token`, then use the JWT for further admin calls
-6. `POST /api/admin/instances/seed` — seeds raid data from Blizzard
+The server runs `alembic upgrade head` automatically on startup (via `Procfile` / Dockerfile CMD), so tables are always created/migrated before the app starts.
 
-For local dev: after step 3, `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
+After the server is up, run the setup script from anywhere:
+```sh
+python setup.py --url https://your-api-url.com
+```
+
+This script:
+1. Calls `POST /api/admin/db/init` (idempotent — safe to re-run)
+2. Fetches guild roster from Blizzard
+3. Prompts you to pick your character and create an owner account
+4. Seeds raid instance data from Blizzard
+
+For local dev only: `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
 
 ## Alembic workflow
 
-On every deploy after the first, `POST /admin/updates/apply` runs `alembic upgrade head` automatically.
+`alembic upgrade head` runs automatically on every deploy (Procfile/Dockerfile). `POST /admin/updates/apply` also runs it after `git pull`.
 
 When you change a model in `lib/db.py`:
 ```sh
 alembic revision --autogenerate -m "describe the change"
 alembic upgrade head
 ```
+
+All migrations are idempotent — safe to run against a DB that was previously created with `create_all()`.
 
 ## Running locally
 
