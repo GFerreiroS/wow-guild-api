@@ -1,3 +1,4 @@
+from __future__ import annotations
 import os
 from datetime import datetime
 from enum import Enum
@@ -29,7 +30,7 @@ def _build_database_url() -> str:
     database = os.getenv("POSTGRES_DB")
 
     if all([user, password, host, port, database]):
-        return f"postgresql://{user}:{password}@{host}:{port}/{database}"
+        return f"postgresql+psycopg://{user}:{password}@{host}:{port}/{database}"
 
     # Fallback for local development/testing
     return "sqlite:///./wowguild.db"
@@ -128,6 +129,28 @@ class Encounter(SQLModel, table=True):
     creature_display_id: Optional[int] = None
     img: Optional[str] = None
     sort_order: int = Field(default=0)
+
+
+def init_db() -> dict:
+    """
+    Create all tables if they don't exist yet. Safe to call multiple times.
+    Returns which tables were created and which already existed.
+    """
+    inspector = inspect(engine)
+    existing = set(inspector.get_table_names())
+    expected = set(SQLModel.metadata.tables.keys())
+
+    already_exists = expected & existing
+    to_create = expected - existing
+
+    if to_create:
+        SQLModel.metadata.create_all(engine, checkfirst=True)
+
+    return {
+        "created": sorted(to_create),
+        "already_existed": sorted(already_exists),
+        "status": "created" if to_create else "already_exists",
+    }
 
 
 def reset_db():
