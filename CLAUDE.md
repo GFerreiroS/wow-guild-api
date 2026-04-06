@@ -133,12 +133,23 @@ CURRENT_KEYSTONE_SEASON_ID = 17
 ## Bootstrap procedure (empty DB)
 
 1. `POST /api/admin/db/init` — creates tables (no auth required)
-2. `POST /api/admin/db/populate` — fetches guild + roster from Blizzard (no auth required when DB has no users)
-3. `POST /users` — create your owner user (no auth required when DB has no users)
-4. Authenticate via `POST /auth/token`, then use the JWT for further admin calls
-5. `POST /api/admin/instances/seed` — seeds raid data from Blizzard
+2. `alembic stamp head` — tell Alembic the DB is current (run once after first deploy, from the repo root)
+3. `POST /api/admin/db/populate` — fetches guild + roster from Blizzard (no auth required when DB has no users)
+4. `POST /users` — create your owner user (no auth required when DB has no users)
+5. Authenticate via `POST /auth/token`, then use the JWT for further admin calls
+6. `POST /api/admin/instances/seed` — seeds raid data from Blizzard
 
-For local dev: after step 2, `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
+For local dev: after step 3, `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
+
+## Alembic workflow
+
+On every deploy after the first, `POST /admin/updates/apply` runs `alembic upgrade head` automatically.
+
+When you change a model in `lib/db.py`:
+```sh
+alembic revision --autogenerate -m "describe the change"
+alembic upgrade head
+```
 
 ## Running locally
 

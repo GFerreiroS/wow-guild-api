@@ -57,6 +57,16 @@ def apply_update() -> dict:
     if result.returncode != 0:
         raise RuntimeError(f"git pull failed: {result.stderr}")
 
+    migration = subprocess.run(
+        ["alembic", "upgrade", "head"],
+        cwd=repo_root,
+        capture_output=True,
+        text=True,
+    )
+    if migration.returncode != 0:
+        raise RuntimeError(f"alembic upgrade failed: {migration.stderr}")
+    logger.info("Database migrations applied.")
+
     new_version = get_local_version()
 
     logger.info(
