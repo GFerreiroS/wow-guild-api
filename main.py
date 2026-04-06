@@ -71,11 +71,10 @@ async def lifespan(app: FastAPI):
             )
     except Exception as e:
         logger.debug("Could not check for updates on startup: %s", e)
-    if os.getenv("INSTANCE_BACKEND", "yaml").lower() == "db":
-        with db.Session(db.engine) as session:
-            if instances.is_db_empty(session):
-                logger.info("Instance DB empty — auto-seeding from YAML.")
-                instances.seed_from_yaml(session)
+    with db.Session(db.engine) as session:
+        if instances.is_db_empty(session):
+            logger.info("Instance DB empty — auto-seeding from YAML.")
+            instances.seed_from_yaml(session)
     yield
     db.dispose_db()
     logger.info("Application shut down.")
@@ -440,14 +439,22 @@ def get_instance(
 
 @api_app.post(
     "/admin/instances/seed",
-    dependencies=[Depends(security.require_roles("owner"))],
-    summary="Seed instance DB from YAML files (requires INSTANCE_BACKEND=db)",
+    dependencies=[Depends(security.require_roles("owner", "administrator"))],
+    summary="Fetch raids from Blizzard, archive to YAML, and seed the instance DB",
     tags=["Admin"],
 )
-def seed_instances(session: Session = Depends(db.get_session)):
-    if os.getenv("INSTANCE_BACKEND", "yaml").lower() != "db":
-        raise HTTPException(400, "INSTANCE_BACKEND is not set to 'db'")
-    return instances.seed_from_yaml(session)
+def seed_instances(
+    session: Session = Depends(db.get_session),
+    expansion_id: Optional[int] = Query(None, description="Only fetch this journal-expansion ID"),
+    current_season: bool = Query(True, description="Include current season raids"),
+):
+    import lib.blizzard_journal as journal
+    raids = journal.generate_raids(
+        expansion_id=expansion_id,
+        include_current_season=current_season,
+    )
+    journal.write_raids_yaml(raids)
+    return instances.seed_from_data(session, raids, journal.CURRENT_SEASON_RAID_IDS)
 
 
 # ---------------------------------------------------------------------------
