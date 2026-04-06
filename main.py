@@ -111,6 +111,7 @@ def validate_password(passwd: str) -> Optional[str]:
     "/auth/token",
     response_model=schema.Token,
     summary="Obtain a JWT access token",
+    tags=["Auth"],
 )
 @limiter.limit(lambda: os.getenv("RATE_LIMIT_LOGIN", "10/minute"))
 def login_for_access_token(
@@ -133,6 +134,7 @@ def login_for_access_token(
     response_model=schema.UserRead,
     summary="Return the authenticated user's profile",
     dependencies=[Depends(security.require_authenticated_user)],
+    tags=["Auth"],
 )
 def read_current_user(
     current_user: db.User = Depends(security.get_current_user),
@@ -147,7 +149,7 @@ def read_current_user(
 # ---------------------------------------------------------------------------
 # WoW data endpoints
 # ---------------------------------------------------------------------------
-@api_app.get("/token", summary="Read the current WoW token price in gold")
+@api_app.get("/token", summary="Read the current WoW token price in gold", tags=["WoW"])
 def read_token(
     session: Session = Depends(db.get_session),
     current_user: Optional[db.User] = Depends(security.get_optional_user),
@@ -161,7 +163,7 @@ def read_token(
         raise HTTPException(502, str(e))
 
 
-@api_app.get("/guild", summary="Read guild info from Blizzard")
+@api_app.get("/guild", summary="Read guild info from Blizzard", tags=["Guild"])
 def read_guild(
     session: Session = Depends(db.get_session),
     current_user: Optional[db.User] = Depends(security.get_optional_user),
@@ -176,7 +178,7 @@ def read_guild(
 # ---------------------------------------------------------------------------
 # Guild roster endpoints
 # ---------------------------------------------------------------------------
-@api_app.get("/guild/roster", summary="Read cached guild roster from Postgres")
+@api_app.get("/guild/roster", summary="Read cached guild roster from Postgres", tags=["Guild"])
 def read_roster(
     skip: int = Query(0, ge=0),
     limit: int = Query(100, ge=1, le=500),
@@ -192,18 +194,7 @@ def read_roster(
     }
 
 
-@api_app.post(
-    "/guild/roster/update",
-    summary="Fetch from Blizzard and upsert into Postgres",
-)
-def update_roster(
-    session: Session = Depends(db.get_session),
-    current_user: Optional[db.User] = Depends(security.get_optional_user),
-):
-    security.ensure_authenticated_or_bootstrap(
-        session, current_user, required_roles={"owner", "administrator"}
-    )
-
+def _do_update_roster(session: Session) -> dict:
     result = guild.get_guild_roster()
     roster = result["roster"]
 
@@ -229,7 +220,22 @@ def update_roster(
     return {"count": len(roster), "updated": datetime.now().astimezone()}
 
 
-@api_app.get("/guild/roster/{character_id}", summary="Get a single character by ID")
+@api_app.post(
+    "/guild/roster/update",
+    summary="Fetch from Blizzard and upsert into Postgres",
+    tags=["Guild"],
+)
+def update_roster(
+    session: Session = Depends(db.get_session),
+    current_user: Optional[db.User] = Depends(security.get_optional_user),
+):
+    security.ensure_authenticated_or_bootstrap(
+        session, current_user, required_roles={"owner", "administrator"}
+    )
+    return _do_update_roster(session)
+
+
+@api_app.get("/guild/roster/{character_id}", summary="Get a single character by ID", tags=["Guild"])
 def get_roster_id(
     character_id: int,
     session: Session = Depends(db.get_session),
@@ -289,6 +295,7 @@ def _create_user_record(payload: schema.UserCreate, session: Session) -> db.User
     "/users",
     response_model=schema.UserRead,
     summary="Create a user and link to a guild character",
+    tags=["Users"],
 )
 def create_user(
     payload: schema.UserCreate,
@@ -307,6 +314,7 @@ def create_user(
     "/users",
     dependencies=[Depends(security.require_roles("owner", "administrator"))],
     response_model=list[schema.UserRead],
+    tags=["Users"],
 )
 def list_users(
     skip: int = Query(0, ge=0),
@@ -324,9 +332,20 @@ def list_users(
 # Admin endpoints
 # ---------------------------------------------------------------------------
 @api_app.post(
+    "/admin/db/init",
+    summary="Create database tables if they don't exist yet",
+    tags=["Admin"],
+)
+def init_database():
+    """Creates all tables. Safe to call multiple times — skips existing tables."""
+    return db.init_db()
+
+
+@api_app.post(
     "/admin/db/reset",
     dependencies=[Depends(security.require_roles("owner"))],
     summary="Drop & recreate all tables (dev only!)",
+    tags=["Admin"],
 )
 def reset_database():
     """WARNING: drops and recreates ALL tables."""
@@ -337,19 +356,38 @@ def reset_database():
 
 @api_app.post(
     "/admin/db/populate",
-    dependencies=[Depends(security.require_roles("owner"))],
-    summary="Populates database (dev only!)",
+    summary="Fetch roster and guild info from Blizzard and update the database",
+    tags=["Admin"],
 )
-def populate_database(session: Session = Depends(db.get_session)):
-    """Refresh roster, token & guild info; create dev seed user."""
-    update_roster(session)
+def populate_database(
+    session: Session = Depends(db.get_session),
+    current_user: Optional[db.User] = Depends(security.get_optional_user),
+):
+    security.ensure_authenticated_or_bootstrap(
+        session, current_user, required_roles={"owner", "administrator"}
+    )
+    roster_result = _do_update_roster(session)
     _get_guild_info_cached()
+    return {"status": "ok", "roster": roster_result}
 
+
+@api_app.post(
+    "/admin/db/seed-dev-user",
+    summary="Create dev seed user linked to Lapaella (dev only!)",
+    tags=["Admin"],
+)
+def seed_dev_user(
+    session: Session = Depends(db.get_session),
+    current_user: Optional[db.User] = Depends(security.get_optional_user),
+):
+    security.ensure_authenticated_or_bootstrap(
+        session, current_user, required_roles={"owner", "administrator"}
+    )
     gm = session.exec(
         select(db.GuildMember).where(db.GuildMember.name == "Lapaella")
     ).first()
     if not gm:
-        raise HTTPException(status_code=404, detail="Character Lapaella not found")
+        raise HTTPException(status_code=404, detail="Character Lapaella not found — run /admin/db/populate first")
 
     _create_user_record(
         schema.UserCreate(
@@ -359,7 +397,7 @@ def populate_database(session: Session = Depends(db.get_session)):
         ),
         session=session,
     )
-    return {"status": "ok"}
+    return {"status": "ok", "username": "paella"}
 
 
 # ---------------------------------------------------------------------------
@@ -369,6 +407,7 @@ def populate_database(session: Session = Depends(db.get_session)):
     "/instances",
     response_model=list[schema.InstanceRead],
     summary="List instances filtered by expansion, type, or current season",
+    tags=["Instances"],
 )
 def list_instances(
     expansion: Optional[str] = Query(None, description="Expansion name, e.g. 'The War Within'"),
@@ -385,6 +424,7 @@ def list_instances(
     "/instances/{blizzard_id}",
     response_model=schema.InstanceDetailRead,
     summary="Get a single instance with its encounters",
+    tags=["Instances"],
 )
 def get_instance(
     blizzard_id: int,
@@ -402,6 +442,7 @@ def get_instance(
     "/admin/instances/seed",
     dependencies=[Depends(security.require_roles("owner"))],
     summary="Seed instance DB from YAML files (requires INSTANCE_BACKEND=db)",
+    tags=["Admin"],
 )
 def seed_instances(session: Session = Depends(db.get_session)):
     if os.getenv("INSTANCE_BACKEND", "yaml").lower() != "db":
@@ -417,6 +458,7 @@ def seed_instances(session: Session = Depends(db.get_session)):
     response_model=schema.UpdateCheckResponse,
     dependencies=[Depends(security.require_roles("owner", "administrator"))],
     summary="Check if a new version is available on GitHub",
+    tags=["Admin"],
 )
 def check_updates():
     try:
@@ -430,6 +472,7 @@ def check_updates():
     response_model=schema.UpdateApplyResponse,
     dependencies=[Depends(security.require_roles("owner"))],
     summary="Pull latest release and restart. Retail mode also regenerates instances.",
+    tags=["Admin"],
 )
 def apply_update():
     game_mode = os.getenv("GAME_MODE", "retail")
@@ -446,6 +489,7 @@ def apply_update():
     "/events/{event_id}",
     response_model=schema.EventRead,
     summary="Get a single event by ID",
+    tags=["Events"],
 )
 def read_event(
     event_id: int,
@@ -460,6 +504,7 @@ def read_event(
     "/event/statuses",
     response_model=List[str],
     summary="List all valid signup statuses",
+    tags=["Events"],
 )
 def get_event_statuses(
     session: Session = Depends(db.get_session),
@@ -474,6 +519,7 @@ def get_event_statuses(
     "/events",
     response_model=schema.EventRead,
     summary="Create a new event (admin/owner only)",
+    tags=["Events"],
 )
 def create_event(
     payload: schema.EventCreate,
@@ -487,6 +533,7 @@ def create_event(
     "/events/{event_id}",
     response_model=schema.EventRead,
     summary="Edit an existing event (admin/owner only)",
+    tags=["Events"],
 )
 def update_event(
     event_id: int,
@@ -500,6 +547,7 @@ def update_event(
 @api_app.delete(
     "/events/{event_id}",
     summary="Delete an event (admin/owner only)",
+    tags=["Events"],
 )
 def delete_event(
     event_id: int,
@@ -513,6 +561,7 @@ def delete_event(
     "/events",
     response_model=list[schema.EventRead],
     summary="List events, filter by day/week/month, optional start date",
+    tags=["Events"],
 )
 def list_events(
     period: Optional[str] = Query(
@@ -534,6 +583,7 @@ def list_events(
     "/events/{event_id}/sign",
     response_model=schema.SignUpRead,
     summary="Sign a user up for an event",
+    tags=["Events"],
 )
 def sign_up_event(
     event_id: int,
@@ -548,6 +598,7 @@ def sign_up_event(
     "/events/{event_id}/sign",
     response_model=schema.SignUpRead,
     summary="Update a signup status for an event",
+    tags=["Events"],
 )
 def update_sign_up(
     event_id: int,
@@ -561,6 +612,7 @@ def update_sign_up(
 @api_app.delete(
     "/events/{event_id}/sign",
     summary="Remove a signup from an event",
+    tags=["Events"],
 )
 def delete_sign_up(
     event_id: int,
