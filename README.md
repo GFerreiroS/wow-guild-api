@@ -134,7 +134,7 @@ See the **Swagger UI** at `http://localhost:8000/docs`.
 * **Virtualenv**:
 
   ```bash
-  python3.13 -m venv .venv
+  python3.14 -m venv .venv
   source .venv/bin/activate
   pip install -r requirements.txt
   ```

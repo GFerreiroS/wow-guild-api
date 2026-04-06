@@ -21,7 +21,7 @@ REGION = os.getenv("REGION", "eu")
 GLOBAL_NS = f"static-{REGION}"
 GLOBAL_LO = os.getenv("LOCALE", "en_US")
 
-API_BASE = "https://eu.api.blizzard.com"
+API_BASE = f"https://{REGION}.api.blizzard.com"
 TOKEN_URL = "https://oauth.battle.net/token"
 
 BASE_OUTPUT = Path("data/instances")
