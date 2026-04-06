@@ -134,16 +134,23 @@ CURRENT_KEYSTONE_SEASON_ID = 17
 
 The server runs `alembic upgrade head` automatically on startup (via `Procfile` / Dockerfile CMD), so tables are always created/migrated before the app starts.
 
-After the server is up, run the setup script from anywhere:
+Run the setup script to configure and bootstrap in one go:
+```sh
+python setup.py
+```
+
+The script:
+1. Asks for Blizzard credentials (shows dev portal URL), guild info, DB config
+2. Generates a JWT secret automatically
+3. Writes `.env`
+4. Waits for the server to come up
+5. Calls `POST /api/admin/db/init`, populates roster, creates owner user, seeds instances
+
+For a server that's already running (Heroku/Dokku/remote):
 ```sh
 python setup.py --url https://your-api-url.com
 ```
-
-This script:
-1. Calls `POST /api/admin/db/init` (idempotent — safe to re-run)
-2. Fetches guild roster from Blizzard
-3. Prompts you to pick your character and create an owner account
-4. Seeds raid instance data from Blizzard
+If `.env` already exists, configuration is skipped. Use `--reconfigure` to redo it.
 
 For local dev only: `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
 
