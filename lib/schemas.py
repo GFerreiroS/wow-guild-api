@@ -7,10 +7,21 @@ from pydantic import BaseModel, Field, field_validator
 from lib.db import SignUpStatus
 
 
+VALID_ROLES = {"owner", "administrator", "user"}
+
+
 class UserCreate(BaseModel):
     username: str = Field(min_length=3, max_length=64)
     password: str
     character_id: int
+    role: str = "user"
+
+    @field_validator("role")
+    @classmethod
+    def validate_role(cls, v: str) -> str:
+        if v not in VALID_ROLES:
+            raise ValueError(f"role must be one of: {', '.join(sorted(VALID_ROLES))}")
+        return v
 
 
 class UserRead(BaseModel):

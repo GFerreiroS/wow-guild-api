@@ -84,6 +84,7 @@ def make_user(
     username: str = "testuser",
     password: str = "Test1234!",
     rank: int = 2,
+    role: str | None = None,
     character_id: int = 1,
 ) -> db.User:
     from lib import security
@@ -92,11 +93,11 @@ def make_user(
     if not gm:
         gm = make_guild_member(session, character_id=character_id, rank=rank)
 
-    role = {0: "owner", 1: "administrator"}.get(rank, "user")
+    resolved_role = role if role is not None else {0: "owner", 1: "administrator"}.get(rank, "user")
     user = db.User(
         username=username,
         password=security.get_password_hash(password),
-        role=role,
+        role=resolved_role,
     )
     session.add(user)
     session.commit()

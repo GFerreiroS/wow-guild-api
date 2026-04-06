@@ -120,39 +120,16 @@ def test_check_includes_release_url_and_notes(mocker, tmp_path):
 # Unit: apply_update
 # ---------------------------------------------------------------------------
 
-def test_apply_retail_runs_instance_regen(mocker, tmp_path):
+def test_apply_runs_git_pull_and_alembic(mocker, tmp_path):
     f = tmp_path / "VERSION"
     f.write_text("1.1.0")
-    mock_run = mocker.patch("lib.updater.subprocess.run", side_effect=[
-        MagicMock(returncode=0),  # git pull
-        MagicMock(returncode=0),  # instance regen
-    ])
+    mock_run = mocker.patch("lib.updater.subprocess.run", return_value=MagicMock(returncode=0))
     mocker.patch("lib.updater.threading.Timer")
     with patch.object(updater, "VERSION_FILE", f):
-        updater.apply_update("retail")
+        updater.apply_update()
     assert mock_run.call_count == 2
     assert mock_run.call_args_list[0][0][0] == ["git", "pull"]
-    assert "generate_instances_yaml.py" in mock_run.call_args_list[1][0][0][-1]
-
-
-def test_apply_non_retail_skips_instance_regen(mocker, tmp_path):
-    f = tmp_path / "VERSION"
-    f.write_text("1.1.0")
-    mock_run = mocker.patch("lib.updater.subprocess.run", return_value=MagicMock(returncode=0))
-    mocker.patch("lib.updater.threading.Timer")
-    with patch.object(updater, "VERSION_FILE", f):
-        updater.apply_update("wotlk")
-    assert mock_run.call_count == 1
-
-
-def test_apply_classic_skips_instance_regen(mocker, tmp_path):
-    f = tmp_path / "VERSION"
-    f.write_text("1.1.0")
-    mock_run = mocker.patch("lib.updater.subprocess.run", return_value=MagicMock(returncode=0))
-    mocker.patch("lib.updater.threading.Timer")
-    with patch.object(updater, "VERSION_FILE", f):
-        updater.apply_update("classic")
-    assert mock_run.call_count == 1
+    assert mock_run.call_args_list[1][0][0] == ["alembic", "upgrade", "head"]
 
 
 def test_apply_git_pull_failure_raises(mocker, tmp_path):
@@ -162,7 +139,20 @@ def test_apply_git_pull_failure_raises(mocker, tmp_path):
     mocker.patch("lib.updater.threading.Timer")
     with patch.object(updater, "VERSION_FILE", f):
         with pytest.raises(RuntimeError, match="git pull failed"):
-            updater.apply_update("retail")
+            updater.apply_update()
+
+
+def test_apply_alembic_failure_raises(mocker, tmp_path):
+    f = tmp_path / "VERSION"
+    f.write_text("1.1.0")
+    mocker.patch("lib.updater.subprocess.run", side_effect=[
+        MagicMock(returncode=0),                           # git pull ok
+        MagicMock(returncode=1, stderr="migration error"), # alembic fails
+    ])
+    mocker.patch("lib.updater.threading.Timer")
+    with patch.object(updater, "VERSION_FILE", f):
+        with pytest.raises(RuntimeError, match="alembic upgrade failed"):
+            updater.apply_update()
 
 
 def test_apply_returns_new_version(mocker, tmp_path):
@@ -171,7 +161,7 @@ def test_apply_returns_new_version(mocker, tmp_path):
     mocker.patch("lib.updater.subprocess.run", return_value=MagicMock(returncode=0))
     mocker.patch("lib.updater.threading.Timer")
     with patch.object(updater, "VERSION_FILE", f):
-        result = updater.apply_update("retail")
+        result = updater.apply_update()
     assert result["updated_to"] == "1.5.0"
     assert result["restarting"] is True
 
@@ -182,25 +172,9 @@ def test_apply_schedules_restart_with_delay(mocker, tmp_path):
     mocker.patch("lib.updater.subprocess.run", return_value=MagicMock(returncode=0))
     mock_timer = mocker.patch("lib.updater.threading.Timer")
     with patch.object(updater, "VERSION_FILE", f):
-        updater.apply_update("retail")
+        updater.apply_update()
     mock_timer.assert_called_once()
     assert mock_timer.call_args[0][0] == 1.0
-
-
-def test_apply_retail_regen_failure_logs_warning(mocker, tmp_path, caplog):
-    f = tmp_path / "VERSION"
-    f.write_text("1.1.0")
-    mocker.patch("lib.updater.subprocess.run", side_effect=[
-        MagicMock(returncode=0),                          # git pull ok
-        MagicMock(returncode=1, stderr="script error"),   # regen fails
-    ])
-    mocker.patch("lib.updater.threading.Timer")
-    import logging
-    with patch.object(updater, "VERSION_FILE", f):
-        with caplog.at_level(logging.WARNING, logger="lib.updater"):
-            result = updater.apply_update("retail")
-    assert result["restarting"] is True
-    assert any("regeneration" in r.message.lower() for r in caplog.records)
 
 
 # ---------------------------------------------------------------------------

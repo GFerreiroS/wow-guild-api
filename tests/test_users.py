@@ -31,26 +31,39 @@ def test_create_user_no_digit(client, session):
 # Bootstrap (first user, no auth required)
 # ---------------------------------------------------------------------------
 
-def test_create_first_user_no_auth(client, session):
+def test_create_first_user_always_owner(client, session):
+    """First user created is always owner regardless of requested role."""
     make_guild_member(session)
     resp = client.post(
         "/api/users",
-        json={"username": "newuser", "password": "Valid1!!", "character_id": 1},
+        json={"username": "newuser", "password": "Valid1!!", "character_id": 1, "role": "user"},
     )
     assert resp.status_code == 200
     data = resp.json()
     assert data["username"] == "newuser"
-    assert data["role"] == "user"
+    assert data["role"] == "owner"
 
 
-def test_create_first_user_owner_rank(client, session):
-    make_guild_member(session, rank=0, name="GM")
+def test_create_user_explicit_role(client, session):
+    make_user(session, rank=0, username="owner1")
+    make_guild_member(session, character_id=2, name="Officer")
+
     resp = client.post(
         "/api/users",
-        json={"username": "gmuser", "password": "Valid1!!", "character_id": 1},
+        json={"username": "officer1", "password": "Valid1!!", "character_id": 2, "role": "administrator"},
+        headers=auth_headers(client, "owner1"),
     )
     assert resp.status_code == 200
-    assert resp.json()["role"] == "owner"
+    assert resp.json()["role"] == "administrator"
+
+
+def test_create_user_invalid_role(client, session):
+    make_guild_member(session)
+    resp = client.post(
+        "/api/users",
+        json={"username": "newuser", "password": "Valid1!!", "character_id": 1, "role": "superadmin"},
+    )
+    assert resp.status_code == 422
 
 
 # ---------------------------------------------------------------------------

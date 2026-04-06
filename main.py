@@ -268,12 +268,8 @@ def _create_user_record(payload: schema.UserCreate, session: Session) -> db.User
     if err:
         raise HTTPException(400, err)
 
-    if gm.rank == 0:
-        role = "owner"
-    elif gm.rank == 1:
-        role = "administrator"
-    else:
-        role = "user"
+    # First user ever always becomes owner regardless of requested role.
+    role = "owner" if not security.users_exist(session) else payload.role
 
     hashed = security.get_password_hash(payload.password)
     user = db.User(username=payload.username, password=hashed, role=role)
@@ -393,6 +389,7 @@ def seed_dev_user(
             username="paella",
             password="Paella1.",
             character_id=gm.character_id,
+            role="owner",
         ),
         session=session,
     )
