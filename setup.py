@@ -15,6 +15,7 @@ import getpass
 import json
 import os
 import secrets
+import subprocess
 import sys
 import time
 import urllib.error
@@ -287,6 +288,38 @@ def step_seed_instances(base: str, token: str) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Docker helpers
+# ---------------------------------------------------------------------------
+
+def _has_compose_file() -> bool:
+    return any(
+        Path(f).exists()
+        for f in ("docker-compose.yml", "docker-compose.yaml", "compose.yml", "compose.yaml")
+    )
+
+
+def _maybe_start_docker(public_url: str) -> None:
+    if not _has_compose_file():
+        print("\nNo docker-compose file found.")
+        print("  Start your server manually, then this script will continue.")
+        print(f"  Other:  set the env vars from .env in your platform and deploy.\n")
+        return
+
+    answer = input("\nStart the server with 'docker compose up -d'? [Y/n]: ").strip().lower()
+    if answer in ("", "y", "yes"):
+        print("  Starting Docker Compose...")
+        result = subprocess.run(["docker", "compose", "up", "-d"], capture_output=True, text=True)
+        if result.returncode != 0:
+            print(f"  docker compose failed:\n{result.stderr}")
+            print(f"  Start it manually, then the script will continue.\n")
+        else:
+            print("  Containers started.")
+    else:
+        print(f"\n  Start your server, then this script will continue.")
+        print(f"    docker compose up -d\n")
+
+
+# ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
 
@@ -319,9 +352,7 @@ def main() -> None:
     if not ENV_FILE.exists() or args.reconfigure:
         config = configure()
         write_env(config)
-        print("\nNext: start your server, then this script will continue.")
-        print("  Docker:  docker compose up -d")
-        print("  Other:   set the env vars from .env in your platform and deploy.\n")
+        _maybe_start_docker(public_url)
     else:
         print(f"\n.env already exists — skipping configuration. (Use --reconfigure to redo it.)")
 
