@@ -298,11 +298,25 @@ def _has_compose_file() -> bool:
     )
 
 
+def _docker_available() -> bool:
+    try:
+        subprocess.run(["docker", "info"], capture_output=True, check=True)
+        return True
+    except (subprocess.CalledProcessError, FileNotFoundError):
+        return False
+
+
 def _maybe_start_docker() -> None:
     if not _has_compose_file():
         print("\nNo docker-compose file found.")
         print("  Start your server manually, then this script will continue.\n")
         return
+
+    if not _docker_available():
+        print("\nError: Docker is not installed or not running.")
+        print("  Install Docker Desktop from https://www.docker.com/products/docker-desktop")
+        print("  Then re-run this script.")
+        sys.exit(1)
 
     print("\nStarting server with docker compose...")
     result = subprocess.run(["docker", "compose", "up", "-d"], capture_output=True, text=True)
