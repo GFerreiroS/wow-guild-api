@@ -120,7 +120,12 @@ def seed_from_data(
     raids: dict,  # exp_name -> {inst_id -> raid_rec}
     current_season_raid_ids: set[int],
 ) -> dict:
-    """Wipe instance tables and reload from in-memory raid data."""
+    """Wipe instance tables and reload from in-memory raid data.
+
+    Processes real expansions first, then season buckets. Duplicate blizzard_ids
+    (e.g. current-season raids appearing under both their expansion and a localised
+    'Current Season' / 'Temporada actual' bucket) are silently skipped.
+    """
     session.execute(delete(Encounter))
     session.execute(delete(Instance))
     session.execute(delete(Expansion))
@@ -128,24 +133,43 @@ def seed_from_data(
 
     total_instances = 0
     total_encounters = 0
+    seen_blizzard_ids: set[int] = set()
 
-    for exp_name, instances_map in raids.items():
-        if exp_name == "Current Season" or not instances_map:
+    def _is_season_bucket(bucket_ids: set[int]) -> bool:
+        """True if every raid in this bucket is a current-season ID (i.e. it's a season-only bucket)."""
+        return bool(bucket_ids) and bucket_ids.issubset(current_season_raid_ids)
+
+    # Sort so real expansions (mixed content) come before pure season buckets
+    def _sort_key(item: tuple) -> int:
+        _, instances_map = item
+        return 1 if _is_season_bucket(set(instances_map.keys())) else 0
+
+    for exp_name, instances_map in sorted(raids.items(), key=_sort_key):
+        if not instances_map:
             continue
+
+        new_raids = [r for r in instances_map.values() if r["blizzard-id"] not in seen_blizzard_ids]
+        if not new_raids:
+            logger.debug("Skipping bucket '%s' — all raids already inserted.", exp_name)
+            continue
+
         expansion = Expansion(name=exp_name)
         session.add(expansion)
         session.commit()
         session.refresh(expansion)
 
-        for sort_idx, raid_rec in enumerate(instances_map.values()):
+        for sort_idx, raid_rec in enumerate(new_raids):
+            blizzard_id = raid_rec["blizzard-id"]
+            seen_blizzard_ids.add(blizzard_id)
+
             inst = Instance(
-                blizzard_id=raid_rec["blizzard-id"],
+                blizzard_id=blizzard_id,
                 expansion_id=expansion.id,
                 name=raid_rec.get("name", ""),
                 description=raid_rec.get("description"),
                 img=raid_rec.get("img"),
                 instance_type="raid",
-                is_current_season=raid_rec["blizzard-id"] in current_season_raid_ids,
+                is_current_season=blizzard_id in current_season_raid_ids,
                 sort_order=sort_idx,
             )
             session.add(inst)
