@@ -595,10 +595,10 @@ def list_users(
 ):
     users = session.exec(select(db.User).offset(skip).limit(limit)).all()
     char_ids = [u.primary_character_id for u in users if u.primary_character_id is not None]
-    chars = {}
+    chars: dict[int, db.GuildMember] = {}
     if char_ids:
         chars = {
-            m.character_id: m.name
+            m.character_id: m
             for m in session.exec(
                 select(db.GuildMember).where(db.GuildMember.character_id.in_(char_ids))
             ).all()
@@ -610,7 +610,8 @@ def list_users(
             role=u.role,
             battletag=u.bnet_battletag,
             primary_character_id=u.primary_character_id,
-            primary_character_name=chars.get(u.primary_character_id) if u.primary_character_id else None,
+            primary_character_name=chars[u.primary_character_id].name if u.primary_character_id and u.primary_character_id in chars else None,
+            primary_character_class=chars[u.primary_character_id].clazz if u.primary_character_id and u.primary_character_id in chars else None,
         )
         for u in users
     ]
