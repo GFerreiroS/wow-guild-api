@@ -339,7 +339,8 @@ def bnet_callback(
 
         if next_url:
             qs = urllib.parse.urlencode({"token": jwt_token, "battletag": battletag})
-            return RedirectResponse(f"{next_url}?{qs}")
+            sep = "&" if "?" in next_url else "?"
+            return RedirectResponse(f"{next_url}{sep}{qs}")
 
         return schema.BNetLoginResponse(
             access_token=jwt_token,
