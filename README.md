@@ -125,7 +125,6 @@ All configuration is via environment variables. Copy `.env.example` to `.env` or
 | Admin | POST | `/api/admin/db/init` | — | Create tables (safe to re-run) |
 | Admin | POST | `/api/admin/db/reset` | owner | Drop & recreate all tables |
 | Admin | POST | `/api/admin/db/populate` | owner/admin | Fetch guild + roster from Blizzard |
-| Admin | POST | `/api/admin/db/seed-dev-user` | owner/admin | Create dev user `paella` (dev only) |
 | Admin | POST | `/api/admin/instances/seed` | owner/admin | Fetch raids from Blizzard + seed DB |
 | Admin | GET | `/api/admin/updates/check` | owner/admin | Check for a new release on GitHub |
 | Admin | POST | `/api/admin/updates/apply` | owner | Pull latest release and restart |
@@ -190,10 +189,6 @@ Raid data is fetched from the Blizzard Journal API and stored in Postgres. To re
 ```bash
 # Via API (requires owner/admin JWT)
 POST /api/admin/instances/seed
-
-# Via standalone script (uses .env credentials directly)
-python scripts/generate_instances_yaml.py --current-season
-python scripts/import_instances.py
 ```
 
 YAML files under `data/instances/` are written as a debug archive only — Postgres is always the source of truth.

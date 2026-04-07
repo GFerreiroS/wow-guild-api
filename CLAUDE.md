@@ -36,9 +36,6 @@ lib/
   security.py            # JWT, role checks, ensure_authenticated_or_bootstrap
   updater.py             # GitHub release check + git pull + restart
   wow.py                 # WoW token price, classes/races index
-scripts/
-  generate_instances_yaml.py   # Standalone CLI — fetches raids from Blizzard and writes YAML
-  import_instances.py          # Standalone CLI — seeds DB from YAML archive files
 data/instances/          # YAML archive written by seed endpoint (debug/backup only)
 alembic/                 # Migrations
 tests/                   # pytest test suite
@@ -88,7 +85,6 @@ Uses `postgresql+psycopg://` (psycopg3 driver).
 | Admin | `POST /admin/db/init` | none (bootstrap) |
 | Admin | `POST /admin/db/reset` | owner |
 | Admin | `POST /admin/db/populate` | owner/administrator |
-| Admin | `POST /admin/db/seed-dev-user` | owner/administrator |
 | Admin | `POST /admin/instances/seed` | owner/administrator |
 | Admin | `GET /admin/updates/check` | owner/administrator |
 | Admin | `POST /admin/updates/apply` | owner |
@@ -101,14 +97,10 @@ Instance data is **always served from PostgreSQL**. YAML files under `data/insta
 
 1. `POST /admin/instances/seed` — fetches raids from Blizzard journal API, writes YAML archive, seeds DB
 2. On startup, if the instance table is empty, auto-seeds from YAML archive (`seed_from_yaml`)
-3. `scripts/generate_instances_yaml.py` — standalone CLI for regenerating the YAML archive manually
-4. `scripts/import_instances.py` — standalone CLI for seeding DB from YAML archive
 
 ### Current season raid IDs (update each season)
 
-Defined in **two places** — keep in sync:
-- `lib/blizzard_journal.py`: `CURRENT_SEASON_RAID_IDS`
-- `scripts/generate_instances_yaml.py`: `CURRENT_SEASON_RAID_IDS`
+Defined in `lib/blizzard_journal.py`: `CURRENT_SEASON_RAID_IDS`
 
 Current values (TWW Season 2 — Liberation of Undermine):
 ```python
@@ -152,8 +144,6 @@ python setup.py --url https://your-api-url.com
 ```
 If `.env` already exists, configuration is skipped. Use `--reconfigure` to redo it.
 
-For local dev only: `POST /api/admin/db/seed-dev-user` creates user `paella` / `Paella1.` linked to character Lapaella.
-
 ## Alembic workflow
 
 `alembic upgrade head` runs automatically on every deploy (Procfile/Dockerfile). `POST /admin/updates/apply` also runs it after `git pull`.
@@ -169,14 +159,10 @@ All migrations are idempotent — safe to run against a DB that was previously c
 ## Running locally
 
 ```sh
-# bash/zsh
-source .venv/bin/activate
+source .venv/bin/activate        # bash/zsh
+source .venv/bin/activate.fish   # fish
 
-# fish
-source .venv/bin/activate.fish
-
-# or just use the script (autodetects shell)
-./start_dev.sh
+.venv/bin/uvicorn main:app --reload
 ```
 
 Uvicorn runs at `http://localhost:8000`.
