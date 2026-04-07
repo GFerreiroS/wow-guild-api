@@ -36,6 +36,7 @@ class UserRead(BaseModel):
     role: str
     battletag: Optional[str] = None
     primary_character_id: Optional[int] = None
+    primary_character_name: Optional[str] = None
 
 
 class BNetLoginResponse(BaseModel):

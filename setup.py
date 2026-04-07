@@ -28,12 +28,13 @@ ENV_FILE = Path(".env")
 BLIZZARD_DEV_PORTAL = "https://develop.battle.net/access/clients"
 
 REGIONS = ["eu", "us", "kr", "tw"]
-LOCALES = {
-    "eu": "en_GB",
-    "us": "en_US",
-    "kr": "ko_KR",
-    "tw": "zh_TW",
+LOCALES_BY_REGION = {
+    "eu": ["en_GB", "es_ES", "fr_FR", "de_DE", "it_IT", "pt_PT", "ru_RU"],
+    "us": ["en_US", "es_MX", "pt_BR"],
+    "kr": ["ko_KR"],
+    "tw": ["zh_TW"],
 }
+LOCALES = {r: locs[0] for r, locs in LOCALES_BY_REGION.items()}  # defaults
 
 
 # ---------------------------------------------------------------------------
@@ -120,8 +121,9 @@ def configure() -> dict:
     client_secret = _prompt("Blizzard CLIENT_SECRET", secret=True)
 
     region = _choose("Region", REGIONS, "eu")
-    default_locale = LOCALES.get(region, "en_US")
-    locale = _prompt("Locale", default=default_locale)
+    available_locales = LOCALES_BY_REGION.get(region, ["en_US"])
+    default_locale = available_locales[0]
+    locale = _choose("Locale", available_locales, default_locale)
 
     print()
     guild_name = _prompt("Guild name (display name, e.g. My Guild)")

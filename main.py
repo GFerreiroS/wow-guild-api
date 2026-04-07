@@ -8,6 +8,7 @@ from typing import List, Optional, cast
 import urllib.parse
 
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
+from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
@@ -173,6 +174,40 @@ def read_current_user(
     )
 
 
+class _PrimaryCharPayload(BaseModel):
+    character_id: int
+
+
+@api_app.patch(
+    "/auth/me/primary-character",
+    response_model=schema.UserRead,
+    summary="Set the authenticated user's primary character",
+    dependencies=[Depends(security.require_authenticated_user)],
+    tags=["Auth"],
+)
+def set_primary_character(
+    payload: _PrimaryCharPayload,
+    current_user: db.User = Depends(security.get_current_user),
+    session: Session = Depends(db.get_session),
+):
+    member = session.get(db.GuildMember, payload.character_id)
+    if not member:
+        raise HTTPException(404, "Character not found")
+    if member.user_id != current_user.id:
+        raise HTTPException(403, "That character does not belong to you")
+    current_user.primary_character_id = payload.character_id
+    session.add(current_user)
+    session.commit()
+    session.refresh(current_user)
+    return schema.UserRead(
+        id=cast(int, current_user.id),
+        username=current_user.username,
+        role=current_user.role,
+        battletag=current_user.bnet_battletag,
+        primary_character_id=current_user.primary_character_id,
+    )
+
+
 # ---------------------------------------------------------------------------
 # Battle.net OAuth2 endpoints
 # ---------------------------------------------------------------------------
@@ -306,7 +341,13 @@ def bnet_callback(
         is_first = not security.users_exist(session)
 
         if user is None:
-            role = "owner" if is_first else "user"
+            best_rank = min(c.rank for c in guild_chars)
+            if is_first or best_rank == 0:
+                role = "owner"
+            elif best_rank == 1:
+                role = "administrator"
+            else:
+                role = "user"
             username = battletag.replace("#", "-")
             if session.exec(
                 select(db.User).where(db.User.username == username)
@@ -323,6 +364,10 @@ def bnet_callback(
             session.commit()
             session.refresh(user)
             logger.info("Created BNet user '%s' (role: %s).", username, role)
+        else:
+            # Refresh battletag in case it changed
+            user.bnet_battletag = battletag
+            session.add(user)
 
         for gm in guild_chars:
             if gm.user_id is None or gm.user_id == user.id:
@@ -549,8 +594,24 @@ def list_users(
     session: Session = Depends(db.get_session),
 ):
     users = session.exec(select(db.User).offset(skip).limit(limit)).all()
+    char_ids = [u.primary_character_id for u in users if u.primary_character_id is not None]
+    chars = {}
+    if char_ids:
+        chars = {
+            m.character_id: m.name
+            for m in session.exec(
+                select(db.GuildMember).where(db.GuildMember.character_id.in_(char_ids))
+            ).all()
+        }
     return [
-        schema.UserRead(id=cast(int, u.id), username=u.username, role=u.role)
+        schema.UserRead(
+            id=cast(int, u.id),
+            username=u.username,
+            role=u.role,
+            battletag=u.bnet_battletag,
+            primary_character_id=u.primary_character_id,
+            primary_character_name=chars.get(u.primary_character_id) if u.primary_character_id else None,
+        )
         for u in users
     ]
 
