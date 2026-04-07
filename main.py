@@ -5,8 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import List, Optional, cast
 
+import urllib.parse
+
 from fastapi import Depends, FastAPI, HTTPException, Query, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.security import OAuth2PasswordRequestForm
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
@@ -15,6 +18,7 @@ from slowapi.util import get_remote_address
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
+import lib.bnet_oauth as bnet_oauth
 import lib.db as db
 import lib.events as events
 import lib.guild as guild
@@ -86,6 +90,25 @@ api_app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 api_app.add_middleware(SlowAPIMiddleware)
 
 
+def _custom_openapi():
+    if api_app.openapi_schema:
+        return api_app.openapi_schema
+    from fastapi.openapi.utils import get_openapi
+    schema = get_openapi(title="WoW Guild API", version="1.0.0", routes=api_app.routes)
+    schema["servers"] = [{"url": "/api"}]
+    schema.setdefault("components", {})["securitySchemes"] = {
+        "BearerAuth": {"type": "http", "scheme": "bearer", "bearerFormat": "JWT"}
+    }
+    for path in schema.get("paths", {}).values():
+        for op in path.values():
+            if isinstance(op, dict) and "security" in op:
+                op["security"] = [{"BearerAuth": []}]
+    api_app.openapi_schema = schema
+    return schema
+
+api_app.openapi = _custom_openapi
+
+
 # ---------------------------------------------------------------------------
 # Password validation
 # ---------------------------------------------------------------------------
@@ -142,14 +165,202 @@ def read_current_user(
         id=cast(int, current_user.id),
         username=current_user.username,
         role=current_user.role,
+        battletag=current_user.bnet_battletag,
+        primary_character_id=current_user.primary_character_id,
     )
+
+
+# ---------------------------------------------------------------------------
+# Battle.net OAuth2 endpoints
+# ---------------------------------------------------------------------------
+
+_BNET_TEST_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>BNet Login Test</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Segoe UI', system-ui, monospace; background: #0d1117; color: #c9d1d9; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+    .card { background: #161b22; border: 1px solid #30363d; border-radius: 12px; padding: 2.5rem; max-width: 560px; width: 100%; }
+    h1 { font-size: 1.4rem; color: #c79552; margin-bottom: 0.25rem; }
+    .sub { color: #8b949e; font-size: 0.85rem; margin-bottom: 2rem; }
+    .btn { display: inline-block; background: #1f6feb; color: #fff; padding: .65rem 1.4rem; text-decoration: none; border-radius: 6px; font-size: 0.9rem; font-weight: 600; transition: background .15s; }
+    .btn:hover { background: #388bfd; }
+    .btn.secondary { background: #21262d; border: 1px solid #30363d; }
+    .btn.secondary:hover { background: #30363d; }
+    .info-row { display: flex; align-items: center; gap: .6rem; margin-bottom: 1.2rem; }
+    .badge { background: #238636; color: #fff; font-size: .75rem; font-weight: 700; padding: .2rem .6rem; border-radius: 20px; }
+    .label { color: #8b949e; font-size: .8rem; margin-bottom: .4rem; }
+    pre, .token-box { background: #0d1117; border: 1px solid #30363d; border-radius: 6px; padding: .9rem; font-size: .78rem; overflow-x: auto; color: #79c0ff; margin-bottom: 1.2rem; }
+    .token-box { word-break: break-all; color: #a5f3c4; }
+    .actions { display: flex; gap: .75rem; flex-wrap: wrap; margin-top: 1rem; }
+    .error { color: #f85149; background: #1a0c0c; border: 1px solid #f8514950; border-radius: 6px; padding: .75rem 1rem; margin-bottom: 1.2rem; font-size: .9rem; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>&#9876; BNet Login Test</h1>
+    <p class="sub">Verifies the Battle.net OAuth2 flow end-to-end.</p>
+    <div id="app">
+      <a class="btn" href="/api/auth/bnet/login?next=/api/auth/bnet/test">Login with Battle.net</a>
+    </div>
+  </div>
+  <script>
+    const p = new URLSearchParams(location.search);
+    const token = p.get('token'), tag = p.get('battletag'), err = p.get('error');
+    const app = document.getElementById('app');
+    if (err) {
+      app.innerHTML = `<div class="error">&#10060; ${err}</div><a class="btn secondary" href="/api/auth/bnet/test">Try again</a>`;
+    } else if (token) {
+      let payload = {};
+      try { payload = JSON.parse(atob(token.split('.')[1])); } catch {}
+      app.innerHTML = `
+        <div class="info-row"><span class="badge">&#10003; Authenticated</span><strong>${tag}</strong></div>
+        <div class="label">JWT payload</div>
+        <pre>${JSON.stringify(payload, null, 2)}</pre>
+        <div class="label">Access token &mdash; paste into Swagger UI Authorize</div>
+        <div class="token-box">${token}</div>
+        <div class="actions">
+          <a class="btn" href="/api/docs">Open Swagger UI</a>
+          <a class="btn secondary" href="/api/auth/bnet/test">Reset</a>
+        </div>`;
+    }
+  </script>
+</body>
+</html>"""
+
+
+@api_app.get("/auth/bnet/test", include_in_schema=False)
+def bnet_test_page():
+    return HTMLResponse(_BNET_TEST_PAGE)
+
+
+@api_app.get(
+    "/auth/bnet/login",
+    summary="Redirect to Battle.net OAuth2 authorization",
+    tags=["Auth"],
+)
+def bnet_login(next: Optional[str] = Query(None, description="URL to redirect to after login")):
+    state = bnet_oauth.generate_state(next_url=next)
+    return RedirectResponse(bnet_oauth.get_authorization_url(state))
+
+
+@api_app.get(
+    "/auth/bnet/callback",
+    response_model=schema.BNetLoginResponse,
+    summary="Battle.net OAuth2 callback — exchanges code for JWT",
+    tags=["Auth"],
+)
+@limiter.limit("10/minute")
+def bnet_callback(
+    request: Request,
+    code: Optional[str] = Query(None),
+    state: Optional[str] = Query(None),
+    error: Optional[str] = Query(None),
+    session: Session = Depends(db.get_session),
+):
+    if error:
+        return RedirectResponse(
+            f"/api/auth/bnet/test?error={urllib.parse.quote(error)}"
+        )
+
+    if not code or not state:
+        raise HTTPException(400, "Missing code or state")
+
+    state_data = bnet_oauth.consume_state(state)
+    if state_data is None:
+        raise HTTPException(400, "Invalid or expired OAuth state — please try logging in again")
+
+    next_url: Optional[str] = state_data.get("next")
+
+    try:
+        token_data = bnet_oauth.exchange_code(code)
+        user_access_token = token_data["access_token"]
+
+        user_info = bnet_oauth.get_user_info(user_access_token)
+        bnet_sub = str(user_info["sub"])
+        battletag: str = user_info.get("battletag", bnet_sub)
+
+        wow_chars = bnet_oauth.get_wow_profile(user_access_token)
+        char_ids = {c["id"] for c in wow_chars}
+
+        guild_chars = session.exec(
+            select(db.GuildMember).where(db.GuildMember.character_id.in_(char_ids))
+        ).all()
+
+        if not guild_chars:
+            msg = "None of your WoW characters are in this guild"
+            if next_url:
+                return RedirectResponse(
+                    f"{next_url}?error={urllib.parse.quote(msg)}"
+                )
+            raise HTTPException(403, msg)
+
+        user = session.exec(
+            select(db.User).where(db.User.bnet_id == bnet_sub)
+        ).first()
+        is_first = not security.users_exist(session)
+
+        if user is None:
+            role = "owner" if is_first else "user"
+            username = battletag.replace("#", "-")
+            if session.exec(
+                select(db.User).where(db.User.username == username)
+            ).first():
+                username = f"{username}-{bnet_sub[-4:]}"
+
+            user = db.User(
+                username=username,
+                bnet_id=bnet_sub,
+                bnet_battletag=battletag,
+                role=role,
+            )
+            session.add(user)
+            session.commit()
+            session.refresh(user)
+            logger.info("Created BNet user '%s' (role: %s).", username, role)
+
+        for gm in guild_chars:
+            if gm.user_id is None or gm.user_id == user.id:
+                gm.user_id = user.id
+                session.add(gm)
+
+        if user.primary_character_id is None and guild_chars:
+            user.primary_character_id = min(guild_chars, key=lambda c: c.rank).character_id
+            session.add(user)
+
+        session.commit()
+
+        jwt_token = security.create_access_token(subject=user.username)
+
+        if next_url:
+            qs = urllib.parse.urlencode({"token": jwt_token, "battletag": battletag})
+            return RedirectResponse(f"{next_url}?{qs}")
+
+        return schema.BNetLoginResponse(
+            access_token=jwt_token,
+            battletag=battletag,
+            role=user.role,
+            username=user.username,
+        )
+
+    except RuntimeError as e:
+        logger.error("BNet callback error: %s", e)
+        if next_url:
+            return RedirectResponse(
+                f"{next_url}?error={urllib.parse.quote(str(e))}"
+            )
+        raise HTTPException(502, str(e))
 
 
 # ---------------------------------------------------------------------------
 # WoW data endpoints
 # ---------------------------------------------------------------------------
 @api_app.get("/token", summary="Read the current WoW token price in gold", tags=["WoW"])
+@limiter.limit("30/minute")
 def read_token(
+    request: Request,
     session: Session = Depends(db.get_session),
     current_user: Optional[db.User] = Depends(security.get_optional_user),
 ):
@@ -163,7 +374,9 @@ def read_token(
 
 
 @api_app.get("/guild", summary="Read guild info from Blizzard", tags=["Guild"])
+@limiter.limit("15/minute")
 def read_guild(
+    request: Request,
     session: Session = Depends(db.get_session),
     current_user: Optional[db.User] = Depends(security.get_optional_user),
 ):
@@ -196,6 +409,21 @@ def read_roster(
 def _do_update_roster(session: Session) -> dict:
     result = guild.get_guild_roster()
     roster = result["roster"]
+    incoming_ids = {m["id"] for m in roster}
+
+    # Null out primary_character_id for users whose main is leaving the guild
+    leaving = session.exec(
+        select(db.GuildMember).where(db.GuildMember.character_id.not_in(incoming_ids))
+    ).all()
+    leaving_ids = {gm.character_id for gm in leaving}
+    if leaving_ids:
+        affected_users = session.exec(
+            select(db.User).where(db.User.primary_character_id.in_(leaving_ids))
+        ).all()
+        for user in affected_users:
+            user.primary_character_id = None
+            session.add(user)
+        session.commit()
 
     session.execute(delete(db.GuildMember))
     session.commit()
@@ -327,6 +555,40 @@ def list_users(
 # Admin endpoints
 # ---------------------------------------------------------------------------
 @api_app.post(
+    "/admin/db/create-maintainer",
+    response_model=schema.UserRead,
+    summary="Bootstrap-only: create a maintainer account with username/password (no BNet required)",
+    tags=["Admin"],
+)
+def create_maintainer(
+    payload: schema.MaintainerCreate,
+    session: Session = Depends(db.get_session),
+):
+    """Creates an owner account with username/password login. Only works when no users exist."""
+    if security.users_exist(session):
+        raise HTTPException(
+            403, "Maintainer can only be created during bootstrap (before any users exist)"
+        )
+    existing = session.exec(
+        select(db.User).where(db.User.username == payload.username)
+    ).first()
+    if existing:
+        raise HTTPException(400, f"Username '{payload.username}' is already taken")
+
+    err = validate_password(payload.password)
+    if err:
+        raise HTTPException(400, err)
+
+    hashed = security.get_password_hash(payload.password)
+    user = db.User(username=payload.username, password=hashed, role="owner")
+    session.add(user)
+    session.commit()
+    session.refresh(user)
+    logger.info("Maintainer account '%s' created.", user.username)
+    return schema.UserRead(id=cast(int, user.id), username=user.username, role=user.role)
+
+
+@api_app.post(
     "/admin/db/init",
     summary="Create database tables if they don't exist yet",
     tags=["Admin"],
@@ -365,35 +627,6 @@ def populate_database(
     _get_guild_info_cached()
     return {"status": "ok", "roster": roster_result}
 
-
-@api_app.post(
-    "/admin/db/seed-dev-user",
-    summary="Create dev seed user linked to Lapaella (dev only!)",
-    tags=["Admin"],
-)
-def seed_dev_user(
-    session: Session = Depends(db.get_session),
-    current_user: Optional[db.User] = Depends(security.get_optional_user),
-):
-    security.ensure_authenticated_or_bootstrap(
-        session, current_user, required_roles={"owner", "administrator"}
-    )
-    gm = session.exec(
-        select(db.GuildMember).where(db.GuildMember.name == "Lapaella")
-    ).first()
-    if not gm:
-        raise HTTPException(status_code=404, detail="Character Lapaella not found — run /admin/db/populate first")
-
-    _create_user_record(
-        schema.UserCreate(
-            username="paella",
-            password="Paella1.",
-            character_id=gm.character_id,
-            role="owner",
-        ),
-        session=session,
-    )
-    return {"status": "ok", "username": "paella"}
 
 
 # ---------------------------------------------------------------------------

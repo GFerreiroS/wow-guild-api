@@ -148,6 +148,13 @@ def configure() -> dict:
         default="GFerreiroS/wow-guild-api",
     )
 
+    print()
+    print("Battle.net OAuth2 — add this URL as an Allowed Redirect URI in your Blizzard app:")
+    bnet_callback = _prompt(
+        "  BNET_CALLBACK_URL",
+        default="http://localhost:8000/api/auth/bnet/callback",
+    )
+
     return {
         "CLIENT_ID": client_id,
         "CLIENT_SECRET": client_secret,
@@ -163,6 +170,7 @@ def configure() -> dict:
         "JWT_SECRET_KEY": jwt_secret,
         "ALLOWED_ORIGINS": allowed_origins,
         "GITHUB_REPO": github_repo,
+        "BNET_CALLBACK_URL": bnet_callback,
     }
 
 
@@ -195,6 +203,9 @@ def write_env(config: dict) -> None:
         "",
         "# GitHub repository used for update checks",
         f"GITHUB_REPO={config['GITHUB_REPO']}",
+        "",
+        "# Battle.net OAuth2 redirect URI (must match Blizzard dev portal)",
+        f"BNET_CALLBACK_URL={config['BNET_CALLBACK_URL']}",
         "",
     ]
     ENV_FILE.write_text("\n".join(lines))
@@ -246,30 +257,11 @@ def step_populate(base: str) -> None:
     print(f"      {count} members loaded.")
 
 
-def step_create_owner(base: str) -> tuple[str, str]:
-    print("\n[3/4] Create your owner account.")
-    print("      This will be the first user with full admin access.\n")
+def step_create_maintainer(base: str) -> tuple[str, str]:
+    print("\n[3/4] Create a maintainer account.")
+    print("      This is a hidden owner account for DB maintenance.")
+    print("      Regular users will log in via Battle.net instead.\n")
 
-    roster = _get(base, "/guild/roster?limit=500")
-    members = roster.get("roster", [])
-    if not members:
-        raise RuntimeError("Roster is empty — make sure step 2 completed successfully.")
-
-    print("      Guild members:")
-    for i, m in enumerate(members, 1):
-        print(f"        {i:3}. {m['name']} ({m['realm']}) — rank {m['rank']}")
-
-    while True:
-        try:
-            choice = int(input("\n      Enter the number of your character: ").strip())
-            if 1 <= choice <= len(members):
-                character = members[choice - 1]
-                break
-        except (ValueError, EOFError):
-            pass
-        print("      Invalid choice, try again.")
-
-    print()
     username = input("      Username: ").strip()
     if not username:
         raise RuntimeError("Username cannot be empty.")
@@ -280,13 +272,8 @@ def step_create_owner(base: str) -> tuple[str, str]:
 
     result = _post(
         base,
-        "/users",
-        {
-            "username": username,
-            "password": password,
-            "character_id": character["character_id"],
-            "role": "owner",
-        },
+        "/admin/db/create-maintainer",
+        {"username": username, "password": password},
     )
     print(f"      Created '{result['username']}' with role '{result['role']}'.")
     return username, password
@@ -345,7 +332,7 @@ def main() -> None:
     try:
         step_init_db(base)
         step_populate(base)
-        username, password = step_create_owner(base)
+        username, password = step_create_maintainer(base)
 
         print("\n      Authenticating...")
         token = _login(base, username, password)
@@ -358,12 +345,13 @@ def main() -> None:
     print(f"""
 Setup complete!
 
-  API docs:  {public_url}/api/docs
-  Username:  {username}
+  API docs:    {public_url}/api/docs
+  BNet login:  {public_url}/api/auth/bnet/test
+  Maintainer:  {username}  (password login via /api/auth/token)
 
 Next steps:
-  - Open the Swagger UI and log in with your credentials
-  - Add more users via POST /api/users
+  - Test Battle.net login at /api/auth/bnet/test
+  - Register BNET_CALLBACK_URL in your Blizzard dev portal (Allowed Redirect URIs)
   - Set ALLOWED_ORIGINS to your frontend URL when you deploy the frontend
 """)
 

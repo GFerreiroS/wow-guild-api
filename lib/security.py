@@ -63,6 +63,8 @@ def authenticate_user(username: str, password: str, session: Session) -> Optiona
     user = session.exec(select(db.User).where(db.User.username == username)).first()
     if not user:
         return None
+    if user.password is None:  # BNet-only account — cannot log in with password
+        return None
     if not verify_password(password, user.password):
         return None
     return user

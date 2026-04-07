@@ -5,7 +5,7 @@ from enum import Enum
 from typing import Generator, Optional
 
 import dotenv
-from sqlalchemy import Column, String, inspect
+from sqlalchemy import Column, ForeignKey, Integer, String, inspect
 from sqlmodel import Field, Session, SQLModel, create_engine
 
 dotenv.load_dotenv()
@@ -64,7 +64,17 @@ class GuildMember(SQLModel, table=True):
 class User(SQLModel, table=True):
     id: int = Field(default=None, primary_key=True)
     username: str = Field(index=True, unique=True)
-    password: str
+    password: Optional[str] = Field(default=None)           # None for BNet-only accounts
+    bnet_id: Optional[str] = Field(default=None, unique=True, index=True)
+    bnet_battletag: Optional[str] = Field(default=None)
+    primary_character_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("guildmember.character_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
     role: str
     created_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
 

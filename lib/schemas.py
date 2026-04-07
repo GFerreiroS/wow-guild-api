@@ -24,10 +24,26 @@ class UserCreate(BaseModel):
         return v
 
 
+class MaintainerCreate(BaseModel):
+    """Bootstrap-only: create a maintainer account with username/password, no BNet required."""
+    username: str = Field(min_length=3, max_length=64)
+    password: str
+
+
 class UserRead(BaseModel):
     id: int
     username: str
     role: str
+    battletag: Optional[str] = None
+    primary_character_id: Optional[int] = None
+
+
+class BNetLoginResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    battletag: str
+    role: str
+    username: str
 
 
 class EventBase(BaseModel):
