@@ -226,6 +226,10 @@ def wait_for_server(url: str, timeout: int = 120) -> None:
             urllib.request.urlopen(url, timeout=3)
             print(" ready.")
             return
+        except urllib.error.HTTPError:
+            # Any HTTP response (including 404) means the server is up
+            print(" ready.")
+            return
         except Exception:
             print(".", end="", flush=True)
             time.sleep(3)
