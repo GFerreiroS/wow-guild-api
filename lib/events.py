@@ -11,15 +11,22 @@ import lib.schemas as schema
 logger = logging.getLogger(__name__)
 
 
-def _make_signup_read(signup: db.EventSignUp, users: dict[int, db.User]) -> schema.SignUpRead:
+def _make_signup_read(
+    signup: db.EventSignUp,
+    users: dict[int, db.User],
+    characters: dict[int, db.GuildMember],
+) -> schema.SignUpRead:
     username = users[signup.user_id].username if signup.user_id in users else "unknown"
-    # signup.status may be a plain str (SQLite returns raw column value) or a SignUpStatus enum
     status_val = signup.status if isinstance(signup.status, str) else signup.status.value
+    char = characters.get(signup.character_id) if signup.character_id else None
     return schema.SignUpRead(
         id=cast(int, signup.id),
         event_id=signup.event_id,
         user_id=signup.user_id,
         username=username,
+        character_id=signup.character_id,
+        character_name=char.name if char else None,
+        character_realm=char.realm if char else None,
         signed_at=signup.signed_at,
         status=schema.SignUpStatus(status_val),
     )
@@ -30,13 +37,20 @@ def _load_signups_for_event(event_id: int, session: Session) -> list[schema.Sign
         select(db.EventSignUp).where(db.EventSignUp.event_id == event_id)
     ).all()
     user_ids = {su.user_id for su in rows}
+    char_ids = {su.character_id for su in rows if su.character_id}
     users: dict[int, db.User] = {}
+    characters: dict[int, db.GuildMember] = {}
     if user_ids:
         users = {
             u.id: u  # type: ignore[index]
             for u in session.exec(select(db.User).where(db.User.id.in_(user_ids))).all()
         }
-    return [_make_signup_read(su, users) for su in rows]
+    if char_ids:
+        characters = {
+            gm.character_id: gm
+            for gm in session.exec(select(db.GuildMember).where(db.GuildMember.character_id.in_(char_ids))).all()
+        }
+    return [_make_signup_read(su, users, characters) for su in rows]
 
 
 def get_event(event_id: int, session: Session) -> schema.EventRead:
@@ -132,11 +146,18 @@ def list_events(
     ).all()
 
     user_ids = {su.user_id for su in all_signups}
+    char_ids = {su.character_id for su in all_signups if su.character_id}
     users: dict[int, db.User] = {}
+    characters: dict[int, db.GuildMember] = {}
     if user_ids:
         users = {
             u.id: u  # type: ignore[index]
             for u in session.exec(select(db.User).where(db.User.id.in_(user_ids))).all()
+        }
+    if char_ids:
+        characters = {
+            gm.character_id: gm
+            for gm in session.exec(select(db.GuildMember).where(db.GuildMember.character_id.in_(char_ids))).all()
         }
 
     signups_by_event: dict[int, list[db.EventSignUp]] = {}
@@ -146,7 +167,7 @@ def list_events(
     out: list[schema.EventRead] = []
     for ev in ev_rows:
         ev_signups = [
-            _make_signup_read(su, users)
+            _make_signup_read(su, users, characters)
             for su in signups_by_event.get(cast(int, ev.id), [])
         ]
         out.append(
@@ -195,16 +216,27 @@ def sign_up_event(
     if existing:
         raise HTTPException(400, "Already signed up")
 
+    # Resolve character: use provided, fall back to user's primary, or None
+    character_id = payload.character_id
+    if character_id is None:
+        character_id = user.primary_character_id
+    if character_id is not None:
+        gm = session.get(db.GuildMember, character_id)
+        if not gm or gm.user_id != target_user_id:
+            raise HTTPException(400, "Character does not belong to this user")
+
     status_val = payload.status if payload.status is not None else schema.SignUpStatus.Assist
     signup = db.EventSignUp(
         event_id=event_id,
         user_id=target_user_id,
+        character_id=character_id,
         status=db.SignUpStatus(status_val.value),
     )
     session.add(signup)
     session.commit()
     session.refresh(signup)
-    return _make_signup_read(signup, {target_user_id: user})
+    chars = {character_id: session.get(db.GuildMember, character_id)} if character_id else {}
+    return _make_signup_read(signup, {target_user_id: user}, chars)
 
 
 def update_signup(
@@ -233,12 +265,22 @@ def update_signup(
         raise HTTPException(404, "Signup not found")
 
     existing.status = db.SignUpStatus(payload.status.value)
+    if payload.character_id is not None:
+        gm = session.get(db.GuildMember, payload.character_id)
+        if not gm or gm.user_id != target_user_id:
+            raise HTTPException(400, "Character does not belong to this user")
+        existing.character_id = payload.character_id
     session.add(existing)
     session.commit()
     session.refresh(existing)
 
     user = session.get(db.User, target_user_id)
-    return _make_signup_read(existing, {target_user_id: user} if user else {})
+    chars = {}
+    if existing.character_id:
+        gm = session.get(db.GuildMember, existing.character_id)
+        if gm:
+            chars[existing.character_id] = gm
+    return _make_signup_read(existing, {target_user_id: user} if user else {}, chars)
 
 
 def delete_signup(

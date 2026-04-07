@@ -106,6 +106,14 @@ class EventSignUp(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     event_id: int = Field(foreign_key="event.id")
     user_id: int = Field(foreign_key="user.id")
+    character_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("guildmember.character_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
     signed_at: datetime = Field(default_factory=lambda: datetime.now().astimezone())
     status: SignUpStatus = Field(
         default=SignUpStatus.Assist,  # default at Python level

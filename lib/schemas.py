@@ -68,11 +68,13 @@ class EventCreate(EventBase):
 class SignUpCreate(BaseModel):
     user_id: int
     status: Optional[SignUpStatus] = SignUpStatus.Assist
+    character_id: Optional[int] = None
 
 
 class SignUpUpdate(BaseModel):
     user_id: int
     status: SignUpStatus
+    character_id: Optional[int] = None
 
 
 class SignUpRead(BaseModel):
@@ -80,6 +82,9 @@ class SignUpRead(BaseModel):
     event_id: int
     user_id: int
     username: str
+    character_id: Optional[int] = None
+    character_name: Optional[str] = None
+    character_realm: Optional[str] = None
     signed_at: datetime
     status: SignUpStatus
 
