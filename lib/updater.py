@@ -49,7 +49,7 @@ def apply_update() -> dict:
     repo_root = Path(__file__).parent.parent
 
     result = subprocess.run(
-        ["git", "pull"],
+        ["git", "-c", f"safe.directory={repo_root}", "pull"],
         cwd=repo_root,
         capture_output=True,
         text=True,
