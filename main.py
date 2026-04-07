@@ -77,8 +77,11 @@ async def lifespan(app: FastAPI):
         logger.debug("Could not check for updates on startup: %s", e)
     with db.Session(db.engine) as session:
         if instances.is_db_empty(session):
-            logger.info("Instance DB empty — auto-seeding from YAML.")
-            instances.seed_from_yaml(session)
+            if instances.DATA_DIR.exists():
+                logger.info("Instance DB empty — auto-seeding from YAML archive.")
+                instances.seed_from_yaml(session)
+            else:
+                logger.info("Instance DB empty and no YAML archive found — run POST /admin/instances/seed after setup.")
     yield
     db.dispose_db()
     logger.info("Application shut down.")

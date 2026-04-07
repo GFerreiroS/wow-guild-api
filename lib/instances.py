@@ -171,7 +171,14 @@ def seed_from_data(
 
 
 def seed_from_yaml(session: Session) -> dict:
-    """Wipe instance tables and reload from YAML archive files."""
+    """Wipe instance tables and reload from YAML archive files.
+
+    Returns empty result silently if the data directory doesn't exist yet
+    (fresh install before POST /admin/instances/seed has run).
+    """
+    if not DATA_DIR.exists():
+        return {"instances": 0, "encounters": 0}
+
     current_ids = _current_season_ids()
 
     raids: dict = {}
