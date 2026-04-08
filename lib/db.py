@@ -85,14 +85,27 @@ class OAuthToken(SQLModel, table=True):
     expires_at: float
 
 
+class GuildSettings(SQLModel, table=True):
+    id: int = Field(default=1, primary_key=True)
+    raid_start: str = Field(default="20:00")  # HH:MM
+    raid_end: str = Field(default="23:00")    # HH:MM
+
+
 class Event(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     title: str
     description: Optional[str] = None
     start_time: datetime
     end_time: datetime
-    # foreign key to the user who created it
     created_by: int = Field(foreign_key="user.id")
+    instance_blizzard_id: Optional[int] = Field(
+        default=None,
+        sa_column=Column(
+            Integer,
+            ForeignKey("instance.blizzard_id", ondelete="SET NULL"),
+            nullable=True,
+        ),
+    )
 
 
 class SignUpStatus(str, Enum):

@@ -53,6 +53,7 @@ class EventBase(BaseModel):
     description: Optional[str] = Field(default=None, max_length=2000)
     start_time: datetime
     end_time: datetime
+    instance_blizzard_id: Optional[int] = None
 
     @field_validator("end_time")
     @classmethod
@@ -65,6 +66,16 @@ class EventBase(BaseModel):
 
 class EventCreate(EventBase):
     pass
+
+
+class GuildSettingsRead(BaseModel):
+    raid_start: str
+    raid_end: str
+
+
+class GuildSettingsUpdate(BaseModel):
+    raid_start: Optional[str] = None
+    raid_end: Optional[str] = None
 
 
 class SignUpCreate(BaseModel):
@@ -98,6 +109,9 @@ class EventRead(BaseModel):
     start_time: datetime
     end_time: datetime
     created_by: int
+    instance_blizzard_id: Optional[int] = None
+    instance_name: Optional[str] = None
+    instance_img: Optional[str] = None
     signups: List[SignUpRead] = Field(default_factory=list)
 
 

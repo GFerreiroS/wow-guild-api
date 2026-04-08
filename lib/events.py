@@ -53,12 +53,15 @@ def _load_signups_for_event(event_id: int, session: Session) -> list[schema.Sign
     return [_make_signup_read(su, users, characters) for su in rows]
 
 
-def get_event(event_id: int, session: Session) -> schema.EventRead:
-    ev = session.get(db.Event, event_id)
-    if not ev:
-        raise HTTPException(404, "Event not found")
+def _instance_fields(blizzard_id: Optional[int], session: Session) -> tuple[Optional[str], Optional[str]]:
+    """Return (instance_name, instance_img) for a given blizzard_id, or (None, None)."""
+    if not blizzard_id:
+        return None, None
+    inst = session.exec(select(db.Instance).where(db.Instance.blizzard_id == blizzard_id)).first()
+    return (inst.name, inst.img) if inst else (None, None)
 
-    signups = _load_signups_for_event(event_id, session)
+
+def _event_read(ev: db.Event, signups: list[schema.SignUpRead], instance_name: Optional[str], instance_img: Optional[str]) -> schema.EventRead:
     return schema.EventRead(
         id=cast(int, ev.id),
         title=ev.title,
@@ -66,8 +69,20 @@ def get_event(event_id: int, session: Session) -> schema.EventRead:
         start_time=ev.start_time,
         end_time=ev.end_time,
         created_by=ev.created_by,
+        instance_blizzard_id=ev.instance_blizzard_id,
+        instance_name=instance_name,
+        instance_img=instance_img,
         signups=signups,
     )
+
+
+def get_event(event_id: int, session: Session) -> schema.EventRead:
+    ev = session.get(db.Event, event_id)
+    if not ev:
+        raise HTTPException(404, "Event not found")
+    signups = _load_signups_for_event(event_id, session)
+    name, img = _instance_fields(ev.instance_blizzard_id, session)
+    return _event_read(ev, signups, name, img)
 
 
 def create_event(
@@ -79,6 +94,7 @@ def create_event(
         start_time=payload.start_time,
         end_time=payload.end_time,
         created_by=created_by,
+        instance_blizzard_id=payload.instance_blizzard_id,
     )
     session.add(ev)
     session.commit()
@@ -96,6 +112,7 @@ def update_event(
     ev.description = payload.description
     ev.start_time = payload.start_time
     ev.end_time = payload.end_time
+    ev.instance_blizzard_id = payload.instance_blizzard_id
     session.add(ev)
     session.commit()
     return get_event(event_id, session)
@@ -164,23 +181,23 @@ def list_events(
     for su in all_signups:
         signups_by_event.setdefault(su.event_id, []).append(su)
 
+    # Batch-load instance data
+    inst_ids = {ev.instance_blizzard_id for ev in ev_rows if ev.instance_blizzard_id}
+    instances: dict[int, db.Instance] = {}
+    if inst_ids:
+        instances = {
+            i.blizzard_id: i
+            for i in session.exec(select(db.Instance).where(db.Instance.blizzard_id.in_(inst_ids))).all()
+        }
+
     out: list[schema.EventRead] = []
     for ev in ev_rows:
         ev_signups = [
             _make_signup_read(su, users, characters)
             for su in signups_by_event.get(cast(int, ev.id), [])
         ]
-        out.append(
-            schema.EventRead(
-                id=cast(int, ev.id),
-                title=ev.title,
-                description=ev.description,
-                start_time=ev.start_time,
-                end_time=ev.end_time,
-                created_by=ev.created_by,
-                signups=ev_signups,
-            )
-        )
+        inst = instances.get(ev.instance_blizzard_id) if ev.instance_blizzard_id else None
+        out.append(_event_read(ev, ev_signups, inst.name if inst else None, inst.img if inst else None))
     return out
 
 

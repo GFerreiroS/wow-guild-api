@@ -754,6 +754,50 @@ def seed_instances(
 
 
 # ---------------------------------------------------------------------------
+# Guild settings endpoints
+# ---------------------------------------------------------------------------
+def _get_or_create_settings(session: Session) -> db.GuildSettings:
+    s = session.get(db.GuildSettings, 1)
+    if s is None:
+        s = db.GuildSettings(id=1, raid_start="20:00", raid_end="23:00")
+        session.add(s)
+        session.commit()
+        session.refresh(s)
+    return s
+
+
+@api_app.get(
+    "/admin/settings",
+    response_model=schema.GuildSettingsRead,
+    summary="Get guild settings (e.g. default raid times)",
+    dependencies=[Depends(security.require_roles("owner", "administrator"))],
+    tags=["Admin"],
+)
+def get_settings(session: Session = Depends(db.get_session)):
+    s = _get_or_create_settings(session)
+    return schema.GuildSettingsRead(raid_start=s.raid_start, raid_end=s.raid_end)
+
+
+@api_app.patch(
+    "/admin/settings",
+    response_model=schema.GuildSettingsRead,
+    summary="Update guild settings",
+    dependencies=[Depends(security.require_roles("owner", "administrator"))],
+    tags=["Admin"],
+)
+def update_settings(payload: schema.GuildSettingsUpdate, session: Session = Depends(db.get_session)):
+    s = _get_or_create_settings(session)
+    if payload.raid_start is not None:
+        s.raid_start = payload.raid_start
+    if payload.raid_end is not None:
+        s.raid_end = payload.raid_end
+    session.add(s)
+    session.commit()
+    session.refresh(s)
+    return schema.GuildSettingsRead(raid_start=s.raid_start, raid_end=s.raid_end)
+
+
+# ---------------------------------------------------------------------------
 # Update endpoints
 # ---------------------------------------------------------------------------
 @api_app.get(
