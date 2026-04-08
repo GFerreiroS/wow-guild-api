@@ -88,6 +88,25 @@ def get_event(event_id: int, session: Session) -> schema.EventRead:
 def create_event(
     payload: schema.EventCreate, session: Session, *, created_by: int
 ) -> schema.EventRead:
+    # Prevent same user from scheduling the same raid twice in the same hour
+    if payload.instance_blizzard_id is not None:
+        hour_start = payload.start_time.replace(minute=0, second=0, microsecond=0)
+        hour_end = hour_start + timedelta(hours=1)
+        conflict = session.exec(
+            select(db.Event).where(
+                db.Event.created_by == created_by,
+                db.Event.instance_blizzard_id == payload.instance_blizzard_id,
+                db.Event.start_time >= hour_start,
+                db.Event.start_time < hour_end,
+            )
+        ).first()
+        if conflict:
+            raise HTTPException(
+                400,
+                "You already have an event for this raid at this hour. "
+                "Choose a different time or a different raid.",
+            )
+
     ev = db.Event(
         title=payload.title,
         description=payload.description,
